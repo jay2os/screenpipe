@@ -10,6 +10,7 @@ pub mod permissions;
 pub mod pipes;
 pub mod strings;
 pub mod window_pattern;
+pub mod work_insights;
 // Thin ffmpeg encoder helpers — moved out of screenpipe-engine so that
 // downstream consumers (including the commercial @screenpipe/sdk in
 // screenpipe/sdk) can reuse the x265 pipeline without pulling the full
@@ -29,3 +30,4 @@ pub use language::{Language, TESSERACT_LANGUAGES};
 pub mod sync;
 #[cfg(feature = "cloud-sync")]
 pub use sync::*;
+pub use work_insights::*;

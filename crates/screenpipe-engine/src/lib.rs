@@ -57,6 +57,7 @@ pub mod video;
 pub mod video_cache;
 pub mod video_utils;
 pub mod vision_manager;
+pub mod work_insights_sync;
 pub mod workflow_classifier;
 pub use auto_destruct::watch_pid;
 pub use axum::Json as JsonResponse;

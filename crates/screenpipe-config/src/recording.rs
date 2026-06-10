@@ -464,6 +464,25 @@ pub struct RecordingSettings {
     #[serde(rename = "enableWorkflowEvents", default)]
     pub enable_workflow_events: bool,
 
+    /// Enable the local work-insights extraction/upload loop.
+    #[serde(rename = "workInsightsEnabled", default)]
+    pub work_insights_enabled: bool,
+
+    /// Portable cloud ingest base URL for work-insights uploads.
+    #[serde(rename = "workInsightsIngestBaseUrl", default)]
+    pub work_insights_ingest_base_url: Option<String>,
+
+    /// Bearer token used to authenticate work-insights ingest uploads.
+    #[serde(rename = "workInsightsIngestAuthToken", default)]
+    pub work_insights_ingest_auth_token: Option<String>,
+
+    /// Interval between work-insights extraction/upload ticks in seconds.
+    #[serde(
+        rename = "workInsightsSyncIntervalSecs",
+        default = "default_work_insights_sync_interval_secs"
+    )]
+    pub work_insights_sync_interval_secs: u64,
+
     /// Detected hardware tier ("high", "mid", "low").
     /// Set once on first launch; `None` for existing installs (treated as High).
     #[serde(
@@ -597,6 +616,10 @@ impl Default for RecordingSettings {
             analytics_enabled: true,
             analytics_id: String::new(),
             enable_workflow_events: false,
+            work_insights_enabled: false,
+            work_insights_ingest_base_url: None,
+            work_insights_ingest_auth_token: None,
+            work_insights_sync_interval_secs: default_work_insights_sync_interval_secs(),
             device_tier: None,
             schedule_enabled: false,
             schedule_rules: vec![],
@@ -632,6 +655,10 @@ fn default_extraction_thread_priority() -> String {
 
 fn default_pause_extraction_on_input_ms() -> u64 {
     150
+}
+
+fn default_work_insights_sync_interval_secs() -> u64 {
+    300
 }
 
 fn default_pii_backend() -> String {

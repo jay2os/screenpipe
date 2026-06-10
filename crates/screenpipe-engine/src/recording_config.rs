@@ -111,6 +111,15 @@ pub struct RecordingConfig {
     /// Enable AI workflow event detection (cloud, requires subscription).
     pub enable_workflow_events: bool,
 
+    /// Enable the local work-insights extraction/upload loop.
+    pub work_insights_enabled: bool,
+    /// Portable cloud ingest base URL for work-insights uploads.
+    pub work_insights_ingest_base_url: Option<String>,
+    /// Bearer token used to authenticate work-insights ingest uploads.
+    pub work_insights_ingest_auth_token: Option<String>,
+    /// Interval between work-insights extraction/upload ticks in seconds.
+    pub work_insights_sync_interval_secs: u64,
+
     // Speaker identification
     /// User's display name for calendar-assisted speaker ID.
     /// Fallback chain: settings userName → cloud auth name → cloud auth email.
@@ -250,6 +259,10 @@ impl RecordingConfig {
             pii_redaction_labels: settings.pii_redaction_labels.clone(),
             filter_music: settings.filter_music,
             enable_workflow_events: settings.enable_workflow_events,
+            work_insights_enabled: settings.work_insights_enabled,
+            work_insights_ingest_base_url: settings.work_insights_ingest_base_url.clone(),
+            work_insights_ingest_auth_token: settings.work_insights_ingest_auth_token.clone(),
+            work_insights_sync_interval_secs: settings.work_insights_sync_interval_secs,
             audio_transcription_engine: engine_str
                 .parse()
                 .unwrap_or(AudioTranscriptionEngine::WhisperLargeV3Turbo),

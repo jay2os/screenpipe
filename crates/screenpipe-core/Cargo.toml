@@ -51,9 +51,10 @@ screenpipe-vault = { path = "../screenpipe-vault", optional = true }
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls"], optional = true }
 # Shared sync primitives. `upload_to_s3` delegates to
 # `screenpipe_sync::HttpPutDirect` so the retry / bytes-pool / cancellation
-# code path is the same one ee/ uses. Gated to the cloud-sync feature so
-# consumer builds without sync don't pay the dep cost.
-screenpipe-sync = { path = "../screenpipe-sync", optional = true }
+# code path is the same one ee/ uses. The work-insights orchestrator also
+# reuses the generic cursor + JSONL helpers from this crate.
+screenpipe-sync = { path = "../screenpipe-sync" }
+screenpipe-protocol = { path = "../screenpipe-protocol" }
 
 once_cell = "1.19.0"
 
@@ -79,7 +80,6 @@ cloud-sync = [
     "dep:base64",
     "dep:zeroize",
     "dep:thiserror",
-    "dep:screenpipe-sync",
     "dep:hex",
 ]
 

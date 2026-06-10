@@ -1,0 +1,47 @@
+Return only a single JSON object matching this exact schema. Do not echo the input fields `apps`, `windows`, `urls`, or `atoms`. Do not add markdown fences, commentary, or extra keys. If a value is unknown, use `null` for `project_or_topic` and `[]` for arrays.
+
+Required output schema:
+{
+  "segment_id": "string",
+  "time_range": {
+    "start": "RFC3339 timestamp",
+    "end": "RFC3339 timestamp"
+  },
+  "activity": "string",
+  "project_or_topic": "string or null",
+  "tools_used": ["string"],
+  "accomplishments": ["string"],
+  "blockers": [
+    {
+      "type": "software|process|person|other",
+      "summary": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "inefficiencies": [
+    {
+      "type": "context_switch|rework|waiting|other",
+      "summary": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "people_mentions": [
+    {
+      "display_name": "string",
+      "context": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "unfinished_work": ["string"],
+  "evidence_atom_ids": ["atom_id"]
+}
+
+Rules:
+- Base every claim only on the provided atoms.
+- Every blocker, inefficiency, and people mention must cite `evidence_atom_ids` from the provided atoms.
+- `segment_id` and `time_range` must match the input exactly.
+- `evidence_atom_ids` should be the union of atom IDs directly supporting the segment summary.
+- If the content is noisy, repetitive, entertainment, or not clearly work-related, say so in `activity` and leave unsupported sections empty.
