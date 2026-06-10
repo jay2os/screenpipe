@@ -8497,7 +8497,7 @@ dependencies = [
 
 [[package]]
 name = "screenpipe-protocol"
-version = "0.4.12"
+version = "0.4.16"
 dependencies = [
  "chrono",
  "serde",
