@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: work_insights
+      POSTGRES_USER: work_insights
+      POSTGRES_PASSWORD: work_insights
+    ports:
+      - "55432:5432"
+    volumes:
+      - work_insights_pg:/var/lib/postgresql/data
+
+volumes:
+  work_insights_pg:

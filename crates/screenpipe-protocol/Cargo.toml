@@ -1,0 +1,13 @@
+[package]
+name = "screenpipe-protocol"
+version = { workspace = true }
+authors = { workspace = true }
+description = "Shared serde DTOs for Screenpipe wire protocols."
+repository = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

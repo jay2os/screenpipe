@@ -589,6 +589,22 @@ pub struct RecordArgs {
     #[arg(long)]
     pub sync_machine_id: Option<String>,
 
+    /// Enable the local work-insights extraction/upload loop.
+    #[arg(long, default_value_t = false)]
+    pub work_insights_enabled: bool,
+
+    /// Portable cloud ingest base URL for work-insights uploads.
+    #[arg(long, env = "SCREENPIPE_WORK_INSIGHTS_INGEST_BASE_URL")]
+    pub work_insights_ingest_base_url: Option<String>,
+
+    /// Bearer token used to authenticate work-insights ingest uploads.
+    #[arg(long, env = "SCREENPIPE_WORK_INSIGHTS_INGEST_TOKEN")]
+    pub work_insights_ingest_auth_token: Option<String>,
+
+    /// Interval between work-insights extraction/upload ticks in seconds.
+    #[arg(long, default_value_t = 300)]
+    pub work_insights_sync_interval_secs: u64,
+
     /// Pause screen and audio capture when a DRM-protected streaming app
     /// (Netflix, Disney+, etc.) or a remote-desktop client (Omnissa/VMware
     /// Horizon) is focused — these blank their windows while any app is
@@ -706,6 +722,10 @@ pub struct RecordArgSources {
     pub api_auth: bool,
     pub listen_on_lan: bool,
     pub encrypt_secrets: bool,
+    pub work_insights_enabled: bool,
+    pub work_insights_ingest_base_url: bool,
+    pub work_insights_ingest_auth_token: bool,
+    pub work_insights_sync_interval_secs: bool,
     pub disable_snapshot_compaction: bool,
     pub disable_meeting_detector: bool,
     pub schedule_enabled: bool,
@@ -755,6 +775,19 @@ impl RecordArgSources {
             api_auth: from_command_line(record, "api_auth"),
             listen_on_lan: from_command_line(record, "listen_on_lan"),
             encrypt_secrets: from_command_line(record, "encrypt_secrets"),
+            work_insights_enabled: from_command_line(record, "work_insights_enabled"),
+            work_insights_ingest_base_url: from_command_line(
+                record,
+                "work_insights_ingest_base_url",
+            ),
+            work_insights_ingest_auth_token: from_command_line(
+                record,
+                "work_insights_ingest_auth_token",
+            ),
+            work_insights_sync_interval_secs: from_command_line(
+                record,
+                "work_insights_sync_interval_secs",
+            ),
             disable_snapshot_compaction: from_command_line(record, "disable_snapshot_compaction"),
             disable_meeting_detector: from_command_line(record, "disable_meeting_detector"),
             schedule_enabled: from_command_line(record, "schedule_enabled"),
@@ -796,6 +829,10 @@ impl RecordArgSources {
             || self.api_auth
             || self.listen_on_lan
             || self.encrypt_secrets
+            || self.work_insights_enabled
+            || self.work_insights_ingest_base_url
+            || self.work_insights_ingest_auth_token
+            || self.work_insights_sync_interval_secs
             || self.disable_snapshot_compaction
             || self.disable_meeting_detector
             || self.schedule_enabled
@@ -957,6 +994,10 @@ impl RecordArgs {
             extraction_thread_priority: self.extraction_thread_priority.clone(),
             pause_extraction_on_input_ms: self.pause_extraction_on_input_ms,
             analytics_enabled: !self.disable_telemetry,
+            work_insights_enabled: self.work_insights_enabled,
+            work_insights_ingest_base_url: self.work_insights_ingest_base_url.clone(),
+            work_insights_ingest_auth_token: self.work_insights_ingest_auth_token.clone(),
+            work_insights_sync_interval_secs: self.work_insights_sync_interval_secs,
             ignore_incognito_windows: true,
             pause_on_drm_content: self.pause_on_drm_content,
             disable_clipboard_capture: self.disable_clipboard_capture,
@@ -1241,6 +1282,24 @@ impl RecordArgs {
         }
         if sources.listen_on_lan {
             settings.listen_on_lan = self.listen_on_lan;
+        }
+        if sources.work_insights_enabled {
+            settings.work_insights_enabled = self.work_insights_enabled;
+        }
+        if sources.work_insights_ingest_base_url {
+            settings.work_insights_ingest_base_url = self
+                .work_insights_ingest_base_url
+                .clone()
+                .filter(|s| !s.is_empty());
+        }
+        if sources.work_insights_ingest_auth_token {
+            settings.work_insights_ingest_auth_token = self
+                .work_insights_ingest_auth_token
+                .clone()
+                .filter(|s| !s.is_empty());
+        }
+        if sources.work_insights_sync_interval_secs {
+            settings.work_insights_sync_interval_secs = self.work_insights_sync_interval_secs;
         }
         if sources.disable_snapshot_compaction {
             settings.disable_snapshot_compaction = self.disable_snapshot_compaction;

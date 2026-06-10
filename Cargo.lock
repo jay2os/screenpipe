@@ -8342,6 +8342,7 @@ dependencies = [
  "regex",
  "reqwest 0.13.3",
  "screenpipe-events",
+ "screenpipe-protocol",
  "screenpipe-secrets",
  "screenpipe-sync",
  "screenpipe-vault",
@@ -8492,6 +8493,15 @@ dependencies = [
  "serde",
  "serde_json",
  "toml 0.8.23",
+]
+
+[[package]]
+name = "screenpipe-protocol"
+version = "0.4.12"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

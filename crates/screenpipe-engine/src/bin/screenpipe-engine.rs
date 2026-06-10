@@ -596,6 +596,21 @@ async fn main() -> anyhow::Result<()> {
                         "sync_interval_secs".into(),
                         json!(record_args.sync_interval_secs),
                     );
+                    map.insert(
+                        "work_insights_enabled".into(),
+                        json!(config.work_insights_enabled),
+                    );
+                    map.insert(
+                        "work_insights_sync_interval_secs".into(),
+                        json!(config.work_insights_sync_interval_secs),
+                    );
+                    map.insert(
+                        "work_insights_ingest_configured".into(),
+                        json!(
+                            config.work_insights_ingest_base_url.is_some()
+                                && config.work_insights_ingest_auth_token.is_some()
+                        ),
+                    );
                     map.insert("debug".into(), json!(record_args.debug));
                     map.insert("api_auth".into(), json!(config.api_auth));
                     map.insert("encrypt_secrets".into(), json!(config.encrypt_secrets));
@@ -927,6 +942,26 @@ async fn main() -> anyhow::Result<()> {
                 None
             }
         }
+    } else {
+        None
+    };
+
+    let work_insights_scheduler = if config.work_insights_enabled {
+        let scheduler =
+            Arc::new(screenpipe_engine::work_insights_sync::WorkInsightsSyncScheduler::new());
+        let work_insights_config =
+            screenpipe_engine::work_insights_sync::build_work_insights_config(
+                local_data_dir.clone(),
+                config.port,
+                config.api_auth_key.clone(),
+                config.work_insights_enabled,
+                config.work_insights_ingest_base_url.clone(),
+                config.work_insights_ingest_auth_token.clone(),
+                config.work_insights_sync_interval_secs,
+            );
+        scheduler.start(work_insights_config);
+        info!("work-insights sync scheduler started");
+        Some(scheduler)
     } else {
         None
     };
@@ -1264,6 +1299,7 @@ async fn main() -> anyhow::Result<()> {
     server.manual_meeting = Some(manual_meeting.clone());
     server.api_auth = config.api_auth;
     server.api_auth_key = config.api_auth_key.clone();
+    server.work_insights_sync = work_insights_scheduler.clone();
     // Cloud JWT for the /v1/chat/completions proxy. CLI/binary path reads
     // SCREENPIPE_API_KEY directly; desktop path overrides via
     // SCServer::cloud_token_handle after spawn.

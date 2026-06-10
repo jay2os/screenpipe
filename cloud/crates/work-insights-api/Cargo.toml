@@ -1,0 +1,31 @@
+[package]
+name = "work-insights-api"
+version = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+ai-gateway = { path = "../ai-gateway" }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+screenpipe-protocol = { path = "../../../crates/screenpipe-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+work-insights-db = { path = "../work-insights-db" }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,59 @@
+Return only a single JSON object matching this exact schema. Do not add markdown fences, commentary, or extra keys.
+
+Required output schema:
+{
+  "summary": "string",
+  "what_the_user_did": ["string"],
+  "accomplishments": ["string"],
+  "unfinished_work": ["string"],
+  "software_blockers": [
+    {
+      "type": "software",
+      "summary": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "person_process_blockers": [
+    {
+      "type": "person|process",
+      "summary": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "inefficiencies": [
+    {
+      "type": "context_switch|rework|waiting|other",
+      "summary": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "automation_opportunities": ["string"],
+  "people_mentioned": [
+    {
+      "display_name": "string",
+      "context": "string",
+      "confidence": 0.0,
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "timeline": [
+    {
+      "segment_id": "string",
+      "start_time": "RFC3339 timestamp",
+      "end_time": "RFC3339 timestamp",
+      "activity": "string",
+      "evidence_atom_ids": ["atom_id"]
+    }
+  ],
+  "evidence_refs": ["atom_id"]
+}
+
+Rules:
+- Base every claim only on the provided `segments` and `evidence`.
+- Do not invent people, blockers, tasks, or durations.
+- Unsupported claims must be omitted.
+- Every blocker, inefficiency, people mention, and timeline entry must cite evidence atom IDs.
+- Prefer concise, factual summaries over speculation.

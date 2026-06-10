@@ -252,6 +252,9 @@ pub struct SCServer {
     /// same reasons as `oauth_refresher` — keeps the JoinHandle alive
     /// and exposes `.snapshot()` for health reporting later.
     pub external_memory_sync: Option<Arc<crate::external_memory_sync::ExternalMemorySyncScheduler>>,
+    /// Background scheduler that spools local work-insights atoms and uploads
+    /// pending batches to the configured ingest service.
+    pub work_insights_sync: Option<Arc<crate::work_insights_sync::WorkInsightsSyncScheduler>>,
     /// Shared high-FPS controller. Set before `start()` so AppState and
     /// the per-monitor capture loops point at the same instance.
     pub high_fps_controller: Option<Arc<crate::high_fps_controller::HighFpsController>>,
@@ -306,6 +309,7 @@ impl SCServer {
             secret_store: None,
             oauth_refresher: None,
             external_memory_sync: None,
+            work_insights_sync: None,
             high_fps_controller: None,
             timeline_disabled: false,
             advertise_mdns: should_advertise_mdns(addr),
