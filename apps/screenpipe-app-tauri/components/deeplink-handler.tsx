@@ -88,7 +88,7 @@ export function DeeplinkHandler() {
           try {
             await loadUser(purchaseToken);
             toast({
-              title: "welcome to screenpipe pro!",
+              title: "welcome to Mimir pro!",
               description: "your subscription is now active",
             });
           } catch (error) {

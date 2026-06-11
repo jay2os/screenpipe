@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "screenpipe - Development",
+  "productName": "Mimir - Development",
   "identifier": "screenpi.pe.dev",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -32,8 +32,8 @@
       "icons/1024x1024.png",
       "icons/icon.icns",
       "icons/icon.ico",
-      "icons/screenpipe-logo-tray-failed.png",
-      "icons/screenpipe-logo-tray-black.png"
+      "icons/mimir-logo-tray-failed.png",
+      "icons/mimir-logo-tray-black.png"
     ],
     "resources": [
       "assets/*",
@@ -105,7 +105,7 @@
     "withGlobalTauri": true,
     "trayIcon": {
       "id": "screenpipe_main",
-      "iconPath": "assets/screenpipe-logo-tray-white.png",
+      "iconPath": "assets/mimir-logo-tray-white.png",
       "iconAsTemplate": true,
       "menuOnLeftClick": true
     },

@@ -1,13 +1,13 @@
 [workspace]
 
 [package]
-name = "screenpipe-app"
+name = "mimir-app"
 version = "2.5.29"
 description = "24/7 memory for your desktop. 100% local."
 authors = ["you"]
 license = ""
 repository = ""
-default-run = "screenpipe-app"
+default-run = "mimir-app"
 edition = "2021"
 rust-version = "1.92"
 

@@ -32,7 +32,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use tracing::{debug, error, info};
 
-/// Flag set by the "quit screenpipe" menu item so that the ExitRequested
+/// Flag set by the "quit Mimir" menu item so that the ExitRequested
 /// handler in main.rs knows this is an intentional quit (not just a window close).
 pub static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -479,12 +479,12 @@ pub fn recreate_tray(app: &AppHandle) {
 
                 // Create a new tray icon — macOS assigns it the rightmost position
                 let icon = match app.path().resolve(
-                    "assets/screenpipe-logo-tray-white.png",
+                    "assets/mimir-logo-tray-white.png",
                     tauri::path::BaseDirectory::Resource,
                 ) {
                     Ok(path) => tauri::image::Image::from_path(path).ok(),
                     Err(_) => {
-                        tauri::image::Image::from_path("assets/screenpipe-logo-tray-white.png").ok()
+                        tauri::image::Image::from_path("assets/mimir-logo-tray-white.png").ok()
                     }
                 };
 
@@ -591,7 +591,7 @@ fn create_dynamic_menu(
             .item(&PredefinedMenuItem::separator(app)?)
             .item(&MenuItemBuilder::with_id("skip_onboarding", "Skip onboarding").build(app)?)
             .item(&PredefinedMenuItem::separator(app)?)
-            .item(&MenuItemBuilder::with_id("quit", "Quit screenpipe").build(app)?);
+            .item(&MenuItemBuilder::with_id("quit", "Quit Mimir").build(app)?);
 
         return menu_builder.build().map_err(Into::into);
     }
@@ -600,10 +600,10 @@ fn create_dynamic_menu(
     let search_shortcut = &data.search_shortcut;
     let chat_shortcut = &data.chat_shortcut;
 
-    // --- Open screenpipe ---
+    // --- Open Mimir ---
     if !data.app_ui_hidden {
         menu_builder = menu_builder
-            .item(&MenuItemBuilder::with_id("open_app", "Open screenpipe").build(app)?)
+            .item(&MenuItemBuilder::with_id("open_app", "Open Mimir").build(app)?)
             .item(&PredefinedMenuItem::separator(app)?);
     }
 
@@ -749,9 +749,9 @@ fn create_dynamic_menu(
     let is_beta = app.config().identifier.contains("beta");
     let is_enterprise = cfg!(feature = "enterprise-build");
     let version_text = match (is_beta, is_enterprise) {
-        (_, true) => format!("screenpipe v{} (Enterprise)", app.package_info().version),
-        (true, false) => format!("screenpipe v{} (Beta)", app.package_info().version),
-        (false, false) => format!("screenpipe v{}", app.package_info().version),
+        (_, true) => format!("Mimir v{} (Enterprise)", app.package_info().version),
+        (true, false) => format!("Mimir v{} (Beta)", app.package_info().version),
+        (false, false) => format!("Mimir v{}", app.package_info().version),
     };
     menu_builder = menu_builder.item(
         &MenuItemBuilder::with_id("version", version_text)
@@ -850,7 +850,7 @@ fn create_dynamic_menu(
         );
     }
     menu_builder = menu_builder.item(
-        &MenuItemBuilder::with_id("quit", "Quit screenpipe")
+        &MenuItemBuilder::with_id("quit", "Quit Mimir")
             .accelerator("CmdOrCtrl+Q")
             .build(app)?,
     );
@@ -1029,7 +1029,7 @@ fn handle_menu_event(app_handle: &AppHandle, event: tauri::menu::MenuEvent) {
             let handle = tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(total).await;
                 let _ = app_for_resume.emit("shortcut-start-recording", ());
-                send_notify("Recording resumed", "screenpipe is recording again.");
+                send_notify("Recording resumed", "Mimir is recording again.");
             });
             *PAUSE_TIMER.lock().unwrap_or_else(|e| e.into_inner()) = Some(PauseTimer {
                 handle,
@@ -1051,7 +1051,7 @@ fn handle_menu_event(app_handle: &AppHandle, event: tauri::menu::MenuEvent) {
             };
             send_notify(
                 "Recording paused",
-                format!("screenpipe will auto-resume in {}.", pretty),
+                format!("Mimir will auto-resume in {}.", pretty),
             );
             // Repaint the tray so "Recording" flips to "Paused" immediately.
             let app_for_rebuild = app_handle.clone();
@@ -1444,14 +1444,14 @@ async fn update_menu_if_needed(
     // has changed. Cheap: just an NSString swap on the existing status item.
     let has_perm_issue = new_state.has_permission_issue;
     let tooltip: String = if has_perm_issue {
-        "screenpipe — ⚠️ permissions needed".to_string()
+        "Mimir — ⚠️ permissions needed".to_string()
     } else if effective_status == RecordingStatus::Paused {
         match pause_remaining() {
-            Some(d) => format!("screenpipe — paused, resumes in {}", format_remaining(d)),
-            None => "screenpipe — paused".to_string(),
+            Some(d) => format!("Mimir — paused, resumes in {}", format_remaining(d)),
+            None => "Mimir — paused".to_string(),
         }
     } else {
-        "screenpipe".to_string()
+        "Mimir".to_string()
     };
     let app_for_tooltip = app.clone();
     let _ = app.run_on_main_thread(move || {

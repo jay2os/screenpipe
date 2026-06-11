@@ -811,9 +811,9 @@ const HARDCODED_DESCRIPTIONS: Record<string, string> = {
   "hermes": "AI-powered messaging assistant",
   "whatsapp": "Search your WhatsApp conversations",
   "anythingllm": "Give AnythingLLM access to your screen",
-  "ollama": "Connect local Ollama models to screenpipe",
-  "lmstudio": "Connect LM Studio models to screenpipe",
-  "msty": "Connect Msty models to screenpipe",
+  "ollama": "Connect local Ollama models to Mimir",
+  "lmstudio": "Connect LM Studio models to Mimir",
+  "msty": "Connect Msty models to Mimir",
   "obsidian": "Sync screen memory to your Obsidian vault",
   "notion": "Search Notion pages with your screen context",
   "linear": "Search Linear issues from your screen context",
@@ -1838,11 +1838,11 @@ function LMStudioPanel() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Connect LM Studio to screenpipe&apos;s screen &amp; audio data, or use it as a local AI provider.
+        Connect LM Studio to Mimir&apos;s screen &amp; audio data, or use it as a local AI provider.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => openUrl(deeplink)} size="sm" className="gap-1.5 h-7 text-xs normal-case font-sans tracking-normal">
-          <Download className="h-3 w-3" /> add screenpipe MCP to LM Studio
+          <Download className="h-3 w-3" /> add Mimir MCP to LM Studio
         </Button>
         <Button onClick={handleCheck} variant="outline" disabled={status === "checking"} size="sm" className="gap-1.5 h-7 text-xs normal-case font-sans tracking-normal">
           {status === "checking" ? (<><Loader2 className="h-3 w-3 animate-spin" />checking...</>) : "check connection"}
@@ -3524,14 +3524,14 @@ export function ConnectionsSection({
       case "krisp": return <OAuthMcpPanel
         name="Krisp"
         mcpUrl={KRISP_MCP_URL}
-        description={<>Connect Krisp so your AI can search your meeting transcripts, notes, and action items. Sign-in is handled by Krisp&apos;s OAuth, so screenpipe never sees your password.</>}
+        description={<>Connect Krisp so your AI can search your meeting transcripts, notes, and action items. Sign-in is handled by Krisp&apos;s OAuth, so Mimir never sees your password.</>}
         onConnected={() => setKrispConnected(true)}
         onDisconnected={() => setKrispConnected(false)}
       />;
       case "plaud": return <OAuthMcpPanel
         name="Plaud"
         mcpUrl={PLAUD_MCP_URL}
-        description={<>Connect Plaud so your AI can search your Plaud recordings, transcripts, summaries, and notes. Sign-in is handled by Plaud&apos;s OAuth, so screenpipe never sees your password.</>}
+        description={<>Connect Plaud so your AI can search your Plaud recordings, transcripts, summaries, and notes. Sign-in is handled by Plaud&apos;s OAuth, so Mimir never sees your password.</>}
         onConnected={() => setPlaudConnected(true)}
         onDisconnected={() => setPlaudConnected(false)}
       />;
@@ -3578,7 +3578,7 @@ export function ConnectionsSection({
         return (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              couldn&apos;t load connection metadata. the local screenpipe server may be starting up.
+              couldn&apos;t load connection metadata. the local Mimir server may be starting up.
             </p>
             <Button
               size="sm"

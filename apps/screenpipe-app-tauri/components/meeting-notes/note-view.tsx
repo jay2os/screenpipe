@@ -1771,14 +1771,14 @@ function providerLabel(
       return "deepgram live";
     case "screenpipe-cloud":
     default:
-      return "screenpipe cloud";
+      return "Mimir Cloud";
   }
 }
 
 function transcriptionEngineLabel(engine: string) {
   switch (engine) {
     case "screenpipe-cloud":
-      return "screenpipe cloud";
+      return "Mimir Cloud";
     case "deepgram":
       return "deepgram";
     case "whisper-large-v3-turbo":

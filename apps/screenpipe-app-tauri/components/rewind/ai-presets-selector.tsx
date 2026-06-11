@@ -509,7 +509,7 @@ export function AIProviderConfig({
               }}
             >
               <Icons.terminal className="h-3.5 w-3.5" />
-              <span>screenpipe cloud</span>
+              <span>Mimir Cloud</span>
             </Button>
           )}
 
@@ -1003,7 +1003,7 @@ export const AIPresetDialog = ({
       prompt: providerData.prompt,
     };
 
-    // Screenpipe Cloud: max output is defined per model in the gateway catalog (see screenpipe_cloud_models in Rust).
+    // Mimir Cloud: max output is defined per model in the gateway catalog (see screenpipe_cloud_models in Rust).
     // Do not persist or override maxTokens from this dialog — avoids defaulting to 4096 and matches Settings.
     if (providerData.provider !== "screenpipe-cloud") {
       (newPreset as any).maxTokens = (providerData as any).maxTokens ?? 4096;
@@ -1394,8 +1394,8 @@ export const AIPresetsSelector = ({
         {!isControlled && selectedPresetRequiresLogin && !showModelOnly && (
           <div className="flex items-center gap-2 p-2 text-sm bg-muted border border-border rounded-lg">
             <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-foreground flex-1">
-              Login required to use Screenpipe Cloud
+              <span className="text-foreground flex-1">
+              Login required to use Mimir Cloud
             </span>
             {showLoginCta && (
               <Button

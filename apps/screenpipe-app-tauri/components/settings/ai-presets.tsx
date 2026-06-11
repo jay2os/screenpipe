@@ -1244,9 +1244,9 @@ const AISection = ({
           {piAvailable && (!isEnterprise || aiPresetPolicy.allow_screenpipe_cloud) && (
             <AIProviderCard
               type="screenpipe-cloud"
-              title="Screenpipe Cloud"
-              description="AI coding agent powered by Screenpipe Cloud. Requires login."
-              imageSrc="/images/screenpipe.png"
+              title="Mimir Cloud"
+              description="AI coding agent powered by Mimir Cloud. Requires login."
+              imageSrc="/images/mimir.png"
               selected={settingsPreset?.provider === "screenpipe-cloud"}
               onClick={() => handleAiProviderChange("screenpipe-cloud")}
               disabled={!settings.user?.token}
@@ -1615,7 +1615,7 @@ const AISection = ({
               </p>
               <p>
                 GPU strongly recommended. without a dedicated GPU, local models will be very slow and pipes may time out.
-                for best results consider screenpipe cloud or groq as custom provider.
+                for best results consider Mimir Cloud or groq as custom provider.
               </p>
             </div>
           )}
@@ -1846,9 +1846,9 @@ const providerImageSrc: Record<string, string> = {
   anthropic: "/images/claude-ai.svg",
   "native-ollama": "/images/ollama.png",
   custom: "/images/custom.png",
-  pi: "/images/screenpipe.png",
-  screenpipe: "/images/screenpipe.png",
-  "screenpipe-cloud": "/images/screenpipe.png",
+  pi: "/images/mimir.png",
+  screenpipe: "/images/mimir.png",
+  "screenpipe-cloud": "/images/mimir.png",
 };
 
 // Sortable preset card for drag-and-drop reordering

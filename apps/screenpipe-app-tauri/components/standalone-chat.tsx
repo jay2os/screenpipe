@@ -1435,7 +1435,7 @@ const STATIC_APP_ICONS: Record<string, string> = {
   apple: "/images/apple.svg",
   "apple-calendar": "/images/apple.svg",
   "apple intelligence": "/images/apple-intelligence.png",
-  screenpipe: "/images/screenpipe.png",
+  screenpipe: "/images/mimir.png",
 };
 
 function normalizeAppKey(name: string): string {

@@ -1,7 +1,7 @@
 !macro NSIS_HOOK_PREINSTALL
   ; Kill screenpipe processes before installation.
   nsExec::ExecToLog 'taskkill /F /T /IM screenpipe.exe'
-  nsExec::ExecToLog 'taskkill /F /T /IM screenpipe-app.exe'
+  nsExec::ExecToLog 'taskkill /F /T /IM mimir-app.exe'
   ; Stop any remaining process running from this install directory, including
   ; the bundled Bun sidecar. Use CIM ExecutablePath instead of Get-Process.Path:
   ; reading process module paths can throw "Access to the path is denied".

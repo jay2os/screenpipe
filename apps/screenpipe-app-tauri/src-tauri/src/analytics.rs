@@ -176,7 +176,7 @@ impl AnalyticsManager {
                 "total_memory": system.total_memory(),
                 "app_version": app_version,
                 // PostHog standard fields for version tracking
-                "release": format!("screenpipe-app@{}", app_version),
+                "release": format!("mimir-app@{}", app_version),
                 "$set": {
                     "app_version": app_version,
                     "os_name": os_name,

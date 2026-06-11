@@ -10,9 +10,9 @@ export const searchIndex: SettingsField[] = [
   // Mirrors the labels actually rendered by AccountSection below. Keep in sync
   // when you add/remove a control — phantom entries route users to a page that
   // doesn't contain the field.
-  { label: "Sign in to Screenpipe", keywords: ["login", "log in", "sign in"] },
+  { label: "Sign in to Mimir", keywords: ["login", "log in", "sign in"] },
   { label: "Logout", keywords: ["signout", "sign out", "log out"] },
-  { label: "Screenpipe Pro", keywords: ["subscription", "billing", "plan", "pro", "upgrade", "manage"] },
+  { label: "Mimir Pro", keywords: ["subscription", "billing", "plan", "pro", "upgrade", "manage"] },
   { label: "pipe sync across devices", keywords: ["pipe sync", "sync"] },
   { label: "memories sync across devices", keywords: ["memories sync", "sync", "facts"] },
   { label: "connection sync across devices", keywords: ["connection sync", "sync", "gmail", "slack", "notion"] },
@@ -57,7 +57,7 @@ function syncErrorDescription(e: unknown): string {
   const msg = (e instanceof Error ? e.message : String(e)) || "";
   // WebKit ("Load failed"), Chromium ("Failed to fetch"), Firefox ("NetworkError")
   if (/load failed|failed to fetch|networkerror|network request failed/i.test(msg)) {
-    return "screenpipe server isn't reachable — give it a few seconds after launch and try again";
+    return "Mimir server isn't reachable — give it a few seconds after launch and try again";
   }
   return msg;
 }
@@ -174,7 +174,7 @@ export function AccountSection() {
                   });
                   toast({
                     title: "subscription activated",
-                    description: "welcome to screenpipe business!",
+                    description: "welcome to Mimir business!",
                   });
                   return; // stop polling
                 }
@@ -271,7 +271,7 @@ export function AccountSection() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
-              <h3 className="text-lg font-semibold">Screenpipe {hasNamedPlan ? planDisplayName(subscriptionPlan) : "Business"}</h3>
+              <h3 className="text-lg font-semibold">Mimir {hasNamedPlan ? planDisplayName(subscriptionPlan) : "Business"}</h3>
               <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">active</span>
             </div>
           </div>
@@ -328,7 +328,7 @@ export function AccountSection() {
                     className="text-xs uppercase tracking-wide"
                     title={
                       isServerDown
-                        ? "screenpipe server is starting up — try again in a moment"
+                        ? "Mimir server is starting up — try again in a moment"
                         : undefined
                     }
                     disabled={pipeSyncing || isServerDown}
@@ -393,7 +393,7 @@ export function AccountSection() {
                     className="text-xs uppercase tracking-wide"
                     title={
                       isServerDown
-                        ? "screenpipe server is starting up — try again in a moment"
+                        ? "Mimir server is starting up — try again in a moment"
                         : undefined
                     }
                     disabled={memoriesSyncing || isServerDown}
@@ -461,7 +461,7 @@ export function AccountSection() {
                     className="text-xs uppercase tracking-wide"
                     title={
                       isServerDown
-                        ? "screenpipe server is starting up — try again in a moment"
+                        ? "Mimir server is starting up — try again in a moment"
                         : undefined
                     }
                     disabled={connectionsSyncing || isServerDown}
@@ -495,7 +495,7 @@ export function AccountSection() {
         <>
           <Card className="p-8 flex flex-col items-center text-center">
             <UserCog className="h-10 w-10 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-1">Sign in to Screenpipe</h3>
+            <h3 className="text-lg font-semibold mb-1">Sign in to Mimir</h3>
             <p className="text-sm text-muted-foreground mb-6">
               free account — no credit card required
             </p>
@@ -513,7 +513,7 @@ export function AccountSection() {
           <details className="group">
             <summary className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground hover:text-foreground transition-colors">
               <Sparkles className="h-4 w-4" />
-              Optional: upgrade to Screenpipe Business
+              Optional: upgrade to Mimir Business
               <span className="text-xs ml-auto group-open:hidden">show details</span>
             </summary>
             <Card className="mt-3 p-5">
@@ -521,7 +521,7 @@ export function AccountSection() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Sparkles className="h-5 w-5" />
-                    <h3 className="text-lg font-semibold">Screenpipe Business</h3>
+                    <h3 className="text-lg font-semibold">Mimir Business</h3>
                   </div>
                   <div className="flex items-baseline gap-2">
                     <span className="text-2xl font-bold">{annual ? "$42" : "$50"}</span>
@@ -602,7 +602,7 @@ export function AccountSection() {
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
                 <h3 className="text-lg font-semibold">
-                  Screenpipe {planDisplayName(subscriptionPlan)}
+                  Mimir {planDisplayName(subscriptionPlan)}
                 </h3>
                 <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
                   active
@@ -630,7 +630,7 @@ export function AccountSection() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Sparkles className="h-5 w-5" />
-                    <h3 className="text-lg font-semibold">Screenpipe Business</h3>
+                    <h3 className="text-lg font-semibold">Mimir Business</h3>
                   </div>
                   <div className="flex items-baseline gap-2">
                     <span className="text-2xl font-bold">{annual ? "$42" : "$50"}</span>

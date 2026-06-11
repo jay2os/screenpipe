@@ -73,7 +73,7 @@ export const E2E_SEED_FLAGS = process.env.SCREENPIPE_E2E_SEED ?? 'onboarding,no-
 
 export function getAppPath(): string {
   const base = resolve(APP_ROOT, 'src-tauri/target/debug');
-  const name = process.platform === 'win32' ? 'screenpipe-app.exe' : 'screenpipe-app';
+  const name = process.platform === 'win32' ? 'mimir-app.exe' : 'mimir-app';
   return resolve(base, name);
 }
 

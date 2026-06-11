@@ -51,8 +51,8 @@ const NotificationHandler: React.FC = () => {
 
           if (!welcomeShown) {
             sendNotification({
-              title: "welcome to screenpipe",
-              body: "thank you for using screenpipe! we're dedicated to help you get the most out of screenpipe.",
+              title: "welcome to Mimir",
+              body: "thank you for using Mimir! we're dedicated to help you get the most out of Mimir.",
             });
             localStorage?.setItem("welcomeNotificationShown", "true");
           }
@@ -299,17 +299,17 @@ const NotificationHandler: React.FC = () => {
   return null;
 };
 
-const PIPE_SUGGESTION_PROMPT = `you are a screenpipe automation advisor. the user wants ideas for pipes (scheduled AI agents) they can create based on their actual workflow.
+const PIPE_SUGGESTION_PROMPT = `you are a Mimir automation advisor. the user wants ideas for pipes (scheduled AI agents) they can create based on their actual workflow.
 
-## what is screenpipe?
+## what is Mimir?
 
-screenpipe is a desktop app that continuously captures screen text (via accessibility APIs) and audio (transcription).
+Mimir is a desktop app that continuously captures screen text (via accessibility APIs) and audio (transcription).
 it runs a local API at http://localhost:3030 that lets you query everything you've seen, said, or heard.
 
 ## what is a pipe?
 
 a pipe is a scheduled AI agent defined as a single markdown file: ~/.screenpipe/pipes/{name}/pipe.md
-every N minutes, screenpipe runs a coding agent with the pipe's prompt.
+every N minutes, Mimir runs a coding agent with the pipe's prompt.
 the agent can query screen data, write files, call external APIs, send notifications, etc.
 
 ## your task
