@@ -13,8 +13,9 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use screenpipe_protocol::{
-    IngestBatchRequest, IngestBatchResponse, UploadCompleteRequest, UploadCompleteResponse,
-    UploadTicketRequest, UploadTicketResponse,
+    DeviceSummary, IngestBatchRequest, IngestBatchResponse, ListDevicesResponse,
+    RegisterDeviceRequest, RegisterDeviceResponse, RevokeDeviceResponse, UploadCompleteRequest,
+    UploadCompleteResponse, UploadTicketRequest, UploadTicketResponse,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -22,6 +23,7 @@ use sqlx::PgPool;
 use std::collections::BTreeMap;
 use tower_http::trace::TraceLayer;
 use work_insights_blob::{blob_store_from_env, BlobStore, ConfiguredBlobStore};
+use work_insights_db::identity::{self, ActiveMembership, AppIdentity};
 use work_insights_db::ingest as db_ingest;
 use work_insights_db::DbError;
 use work_insights_db::Principal;
@@ -30,15 +32,15 @@ use work_insights_queue::{queue_from_env, ConfiguredQueue, IngestBatchJob, JobQu
 use work_insights_report as reports;
 use work_insights_report::ReportError;
 
+mod auth;
+
 #[derive(Debug, Clone)]
-struct Config {
+pub(crate) struct Config {
     database_url: String,
-    ingest_token: String,
-    default_org_id: String,
-    default_user_id: String,
-    default_device_id: String,
     bind_addr: SocketAddr,
     public_base_url: String,
+    supabase_url: Option<String>,
+    supabase_anon_key: Option<String>,
 }
 
 impl Config {
@@ -52,12 +54,10 @@ impl Config {
 
         Ok(Self {
             database_url: required_env("WORK_INSIGHTS_DATABASE_URL")?,
-            ingest_token: required_env("WORK_INSIGHTS_INGEST_TOKEN")?,
-            default_org_id: required_env("WORK_INSIGHTS_DEFAULT_ORG_ID")?,
-            default_user_id: required_env("WORK_INSIGHTS_DEFAULT_USER_ID")?,
-            default_device_id: required_env("WORK_INSIGHTS_DEFAULT_DEVICE_ID")?,
             bind_addr,
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
+            supabase_url: std::env::var("SUPABASE_URL").ok(),
+            supabase_anon_key: std::env::var("SUPABASE_ANON_KEY").ok(),
         })
     }
 }
@@ -72,6 +72,7 @@ struct AppState {
     pool: PgPool,
     blob_store: ConfiguredBlobStore,
     queue: ConfiguredQueue,
+    http: reqwest::Client,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -84,6 +85,8 @@ enum AppError {
     Conflict(String),
     #[error("{0}")]
     NotFound(String),
+    #[error("{0}")]
+    Forbidden(String),
     #[error("{0}")]
     Internal(String),
     #[error(transparent)]
@@ -101,6 +104,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => axum::http::StatusCode::CONFLICT,
             AppError::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            AppError::Forbidden(_) => axum::http::StatusCode::FORBIDDEN,
             AppError::Internal(_) | AppError::Io(_) | AppError::Sqlx(_) | AppError::Json(_) => {
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -167,17 +171,24 @@ async fn build_state(config: Arc<Config>) -> anyhow::Result<AppState> {
         .context("running migrations failed")?;
     let blob_store = blob_store_from_env().context("building blob store failed")?;
     let queue = queue_from_env().await?;
+    let http = reqwest::Client::new();
     Ok(AppState {
         config,
         pool,
         blob_store,
         queue,
+        http,
     })
 }
 
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/auth/session/exchange", post(exchange_session))
+        .route("/me", get(get_me))
+        .route("/devices/register", post(register_device))
+        .route("/devices", get(list_devices))
+        .route("/devices/:device_id/revoke", post(revoke_device))
         .route("/v1/ingest/batches", post(register_batch))
         .route("/v1/ingest/upload-ticket", post(upload_ticket))
         .route("/v1/ingest/uploads/:batch_id", put(put_upload))
@@ -193,12 +204,92 @@ async fn health() -> Json<serde_json::Value> {
     Json(json!({ "ok": true }))
 }
 
+async fn exchange_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AppIdentity>, AppError> {
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    Ok(Json(identity))
+}
+
+async fn get_me(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AppIdentity>, AppError> {
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    Ok(Json(identity))
+}
+
+async fn register_device(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegisterDeviceRequest>,
+) -> Result<Json<RegisterDeviceResponse>, AppError> {
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    let membership = require_active_membership(&state.pool, &identity).await?;
+    let device_label = body.device_label.trim();
+    let platform = body.platform.trim();
+    if device_label.is_empty() || platform.is_empty() {
+        return Err(AppError::BadRequest(
+            "device_label and platform are required".to_string(),
+        ));
+    }
+
+    let registered =
+        identity::register_device(&state.pool, &membership, device_label, platform).await?;
+    Ok(Json(RegisterDeviceResponse {
+        ok: true,
+        device_id: registered.device.device_id,
+        device_token: registered.raw_token,
+        device_label: registered.device.device_label,
+        platform: registered.device.platform,
+    }))
+}
+
+async fn list_devices(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ListDevicesResponse>, AppError> {
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    let membership = require_active_membership(&state.pool, &identity).await?;
+    let devices = identity::list_devices_for_membership(&state.pool, &membership).await?;
+    Ok(Json(ListDevicesResponse {
+        ok: true,
+        devices: devices.into_iter().map(device_summary).collect(),
+    }))
+}
+
+async fn revoke_device(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(device_id): Path<String>,
+) -> Result<Json<RevokeDeviceResponse>, AppError> {
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    let membership = require_active_membership(&state.pool, &identity).await?;
+    let device = identity::find_device_for_org(&state.pool, &membership.org_id, &device_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("device not found".to_string()))?;
+
+    if !can_revoke_device(&membership, &device.user_id) {
+        return Err(AppError::Forbidden(
+            "members may only revoke their own devices".to_string(),
+        ));
+    }
+
+    let revoked = identity::revoke_device(&state.pool, &membership.org_id, &device_id).await?;
+    Ok(Json(RevokeDeviceResponse {
+        ok: true,
+        device_id,
+        revoked,
+    }))
+}
+
 async fn register_batch(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<IngestBatchRequest>,
 ) -> Result<Json<IngestBatchResponse>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let principal = auth::authenticate_device(&state, &headers).await?;
     validate_batch(&body)?;
     if let Some((sha256, byte_count)) =
         db_ingest::upsert_pending_batch(&state.pool, &principal, &body, None).await?
@@ -222,7 +313,8 @@ async fn upload_ticket(
     headers: HeaderMap,
     Json(body): Json<UploadTicketRequest>,
 ) -> Result<Json<UploadTicketResponse>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let principal = auth::authenticate_device(&state, &headers).await?;
+    let bearer = auth::bearer_token(&headers)?;
     validate_batch(&body.batch)?;
     if let Some((sha256, byte_count)) =
         db_ingest::upsert_pending_batch(&state.pool, &principal, &body.batch, None).await?
@@ -236,7 +328,7 @@ async fn upload_ticket(
     let mut headers = BTreeMap::new();
     headers.insert(
         "authorization".to_string(),
-        format!("Bearer {}", state.config.ingest_token),
+        format!("Bearer {}", bearer),
     );
     Ok(Json(UploadTicketResponse {
         ok: Some(true),
@@ -255,7 +347,7 @@ async fn put_upload(
     Path(batch_id): Path<String>,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let principal = auth::authenticate_device(&state, &headers).await?;
     if body.is_empty() {
         return Err(AppError::BadRequest(
             "upload body must not be empty".to_string(),
@@ -320,7 +412,7 @@ async fn upload_complete(
     headers: HeaderMap,
     Json(body): Json<UploadCompleteRequest>,
 ) -> Result<Json<UploadCompleteResponse>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let principal = auth::authenticate_device(&state, &headers).await?;
     validate_batch(&body.batch)?;
     let status =
         db_ingest::batch_status(&state.pool, &principal.org_id, &body.batch.batch_id).await?;
@@ -348,7 +440,8 @@ async fn get_daily_report(
     headers: HeaderMap,
     Query(query): Query<ReportDateQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    let principal = report_principal(&state.pool, &identity).await?;
     reports::get_daily_report(&state.pool, &principal, &query.date)
         .await
         .map_err(AppError::from)
@@ -359,7 +452,8 @@ async fn get_daily_timeline(
     headers: HeaderMap,
     Query(query): Query<ReportDateQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    let principal = report_principal(&state.pool, &identity).await?;
     reports::get_daily_timeline(&state.pool, &principal, &query.date)
         .await
         .map_err(AppError::from)
@@ -370,28 +464,11 @@ async fn get_evidence(
     headers: HeaderMap,
     Path(atom_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let principal = authenticate(&state, &headers)?;
+    let identity = auth::authenticate_app_user(&state, &headers).await?;
+    let principal = report_principal(&state.pool, &identity).await?;
     reports::get_evidence(&state.pool, &principal, &atom_id)
         .await
         .map_err(AppError::from)
-}
-
-fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Principal, AppError> {
-    let Some(raw) = headers.get(axum::http::header::AUTHORIZATION) else {
-        return Err(AppError::Unauthorized);
-    };
-    let token = raw.to_str().map_err(|_| AppError::Unauthorized)?;
-    let token = token
-        .strip_prefix("Bearer ")
-        .ok_or(AppError::Unauthorized)?;
-    if token != state.config.ingest_token {
-        return Err(AppError::Unauthorized);
-    }
-    Ok(Principal {
-        org_id: state.config.default_org_id.clone(),
-        user_id: state.config.default_user_id.clone(),
-        device_id: state.config.default_device_id.clone(),
-    })
 }
 
 fn validate_batch(batch: &IngestBatchRequest) -> Result<(), AppError> {
@@ -426,6 +503,41 @@ fn is_safe_id(value: &str) -> bool {
 
 fn blob_key(org_id: &str, batch_id: &str) -> String {
     format!("{org_id}/{batch_id}.jsonl")
+}
+
+async fn require_active_membership(
+    pool: &PgPool,
+    identity: &AppIdentity,
+) -> Result<ActiveMembership, AppError> {
+    identity::resolve_active_membership(pool, &identity.user_id)
+        .await?
+        .ok_or_else(|| AppError::Forbidden("active organization membership required".to_string()))
+}
+
+async fn report_principal(pool: &PgPool, identity: &AppIdentity) -> Result<Principal, AppError> {
+    let membership = require_active_membership(pool, identity).await?;
+    Ok(Principal {
+        org_id: membership.org_id,
+        user_id: membership.user_id,
+        device_id: String::new(),
+    })
+}
+
+fn device_summary(device: work_insights_db::identity::DeviceRecord) -> DeviceSummary {
+    DeviceSummary {
+        device_id: device.device_id,
+        org_id: device.org_id,
+        user_id: device.user_id,
+        device_label: device.device_label,
+        platform: device.platform,
+        revoked_at: device.revoked_at,
+        last_seen_at: device.last_seen_at,
+        created_at: device.created_at,
+    }
+}
+
+fn can_revoke_device(membership: &ActiveMembership, device_user_id: &str) -> bool {
+    matches!(membership.role.as_str(), "owner" | "admin") || membership.user_id == device_user_id
 }
 
 async fn publish_ingest_job(
@@ -468,5 +580,22 @@ mod tests {
         assert!(is_safe_id("abc_123-DEF"));
         assert!(!is_safe_id("../abc"));
         assert!(!is_safe_id("abc/def"));
+    }
+
+    #[test]
+    fn revoke_policy_matches_role_rules() {
+        let membership = ActiveMembership {
+            org_id: "org".to_string(),
+            user_id: "user_1".to_string(),
+            role: "member".to_string(),
+        };
+        assert!(can_revoke_device(&membership, "user_1"));
+        assert!(!can_revoke_device(&membership, "user_2"));
+
+        let admin = ActiveMembership {
+            role: "admin".to_string(),
+            ..membership.clone()
+        };
+        assert!(can_revoke_device(&admin, "user_2"));
     }
 }

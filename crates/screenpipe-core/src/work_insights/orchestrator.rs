@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use screenpipe_sync::SyncError;
 use tracing::{debug, info, warn};
 
 use crate::work_insights::cleaner::{
@@ -23,8 +25,14 @@ use crate::work_insights::{
     WorkInsightsConfig, WorkInsightsCursorState, WorkInsightsRecord, WorkInsightsUploadMarker,
     WorkInsightsUploadOutcome,
 };
-use screenpipe_protocol::{IngestBatchRequest, UploadCompleteRequest, UploadTicketRequest};
+use screenpipe_protocol::{
+    IngestBatchRequest, RegisterDeviceRequest, RegisterDeviceResponse, UploadCompleteRequest,
+    UploadTicketRequest,
+};
 use screenpipe_sync::{cursor::Cursor, hash, jsonl, TicketedConfig, TicketedPipeline};
+
+#[cfg(feature = "secrets")]
+const DEVICE_TOKEN_SECRET_KEY: &str = "work_insights:device_token";
 
 /// Orchestrates local fetch + cleanup + spool writing.
 pub struct WorkInsightsOrchestrator {
@@ -103,28 +111,11 @@ impl WorkInsightsOrchestrator {
             .ingest_base_url
             .as_deref()
             .context("work-insights upload enabled but ingest_base_url is not set")?;
-        let auth_token = self
-            .config
-            .ingest_auth_token
-            .as_deref()
-            .context("work-insights upload enabled but ingest_auth_token is not set")?;
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", auth_token))
-                .context("invalid ingest auth token header")?,
-        );
-        let cfg = TicketedConfig::new(
-            format!("{}/v1/ingest/upload-ticket", ingest_base_url),
-            format!("{}/v1/ingest/upload-complete", ingest_base_url),
-        )
-        .with_control_headers(headers)
-        .with_put_retries(
-            self.config.upload_put_max_retries,
-            Duration::from_secs(self.config.upload_put_initial_backoff_secs),
-        );
-        let pipeline = TicketedPipeline::new(cfg);
+        let Some(auth_token) = self.resolve_upload_token(ingest_base_url).await? else {
+            debug!("work-insights: upload skipped because no active device or fallback credential is available");
+            return Ok(Vec::new());
+        };
+        let mut current_auth_token = auth_token;
 
         let mut outcomes = Vec::new();
         for (manifest, spool_path, manifest_path) in self.pending_uploads()? {
@@ -146,11 +137,17 @@ impl WorkInsightsOrchestrator {
                 batch,
                 object_url: None,
             })?;
-
-            pipeline
-                .upload(&body, jsonl::CONTENT_TYPE, &ticket_body, &complete_body)
+            current_auth_token = self
+                .upload_batch_with_reauth(
+                ingest_base_url,
+                &current_auth_token,
+                &body,
+                &manifest.batch_id,
+                &ticket_body,
+                &complete_body,
+            )
                 .await
-                .with_context(|| format!("uploading work-insights batch {}", manifest.batch_id))?;
+            .with_context(|| format!("uploading work-insights batch {}", manifest.batch_id))?;
 
             let marker_path = self.upload_marker_path(&manifest.batch_id);
             self.write_upload_marker(&marker_path, &manifest.batch_id, &sha256, body.len())?;
@@ -169,6 +166,248 @@ impl WorkInsightsOrchestrator {
             });
         }
         Ok(outcomes)
+    }
+
+    async fn upload_batch_with_reauth(
+        &self,
+        ingest_base_url: &str,
+        initial_auth_token: &str,
+        body: &[u8],
+        batch_id: &str,
+        ticket_body: &serde_json::Value,
+        complete_body: &serde_json::Value,
+    ) -> Result<String> {
+        match self
+            .pipeline_for_token(ingest_base_url, initial_auth_token)?
+            .upload(body, jsonl::CONTENT_TYPE, ticket_body, complete_body)
+            .await
+        {
+            Ok(_) => Ok(initial_auth_token.to_string()),
+            Err(SyncError::AuthRejected) if self.config.ingest_session_token.is_some() => {
+                warn!("work-insights: cached device credential rejected for batch {}, re-registering device", batch_id);
+                self.clear_persisted_device_token().await?;
+                let refreshed = self
+                    .resolve_upload_token(ingest_base_url)
+                    .await?
+                    .context("device re-registration did not yield a new upload credential")?;
+                self.pipeline_for_token(ingest_base_url, &refreshed)?
+                    .upload(body, jsonl::CONTENT_TYPE, ticket_body, complete_body)
+                    .await
+                    .map(|_| refreshed)
+                    .map_err(anyhow::Error::from)
+            }
+            Err(err) => Err(anyhow::Error::from(err)),
+        }
+    }
+
+    fn pipeline_for_token(
+        &self,
+        ingest_base_url: &str,
+        auth_token: &str,
+    ) -> Result<TicketedPipeline> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", auth_token))
+                .context("invalid ingest auth token header")?,
+        );
+        let cfg = TicketedConfig::new(
+            format!("{}/v1/ingest/upload-ticket", ingest_base_url),
+            format!("{}/v1/ingest/upload-complete", ingest_base_url),
+        )
+        .with_control_headers(headers)
+        .with_put_retries(
+            self.config.upload_put_max_retries,
+            Duration::from_secs(self.config.upload_put_initial_backoff_secs),
+        );
+        Ok(TicketedPipeline::new(cfg))
+    }
+
+    pub(crate) async fn resolve_upload_token(&self, ingest_base_url: &str) -> Result<Option<String>> {
+        let session_token = self.config.ingest_session_token.as_deref();
+        let session_subject = session_token.and_then(jwt_subject);
+        if let Some(stored) = self.read_persisted_device_token().await? {
+            match (stored.session_subject.as_deref(), session_subject.as_deref()) {
+                (Some(stored_subject), Some(current_subject))
+                    if stored_subject != current_subject =>
+                {
+                    warn!(
+                        "work-insights: dropping cached device token for session subject {} because current session is {}",
+                        stored_subject, current_subject
+                    );
+                    self.clear_persisted_device_token().await?;
+                }
+                (None, Some(current_subject)) => {
+                    warn!(
+                        "work-insights: dropping cached device token without session binding because current session is {}",
+                        current_subject
+                    );
+                    self.clear_persisted_device_token().await?;
+                }
+                _ => return Ok(Some(stored.token)),
+            }
+        }
+
+        if let Some(session_token) = session_token {
+            let identity = self.fetch_current_identity(ingest_base_url, session_token).await?;
+            return self
+                .register_device(
+                    ingest_base_url,
+                    session_token,
+                    &identity.user_id,
+                    session_subject.as_deref(),
+                )
+                .await
+                .map(Some);
+        }
+
+        Ok(None)
+    }
+
+    async fn fetch_current_identity(
+        &self,
+        ingest_base_url: &str,
+        session_token: &str,
+    ) -> Result<CurrentAppIdentity> {
+        let response = reqwest::Client::new()
+            .get(format!("{}/me", ingest_base_url))
+            .bearer_auth(session_token)
+            .send()
+            .await
+            .context("loading current app identity failed")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("loading current app identity failed ({}): {}", status, body);
+        }
+        response
+            .json()
+            .await
+            .context("current app identity response was invalid")
+    }
+
+    async fn read_persisted_device_token(&self) -> Result<Option<StoredDeviceToken>> {
+        #[cfg(feature = "secrets")]
+        {
+            if let Some(store) = open_secret_store(&self.config).await? {
+                return store.get_json(DEVICE_TOKEN_SECRET_KEY).await;
+            }
+        }
+
+        self.read_legacy_device_token_file()
+    }
+
+    async fn write_persisted_device_token(&self, token: &StoredDeviceToken) -> Result<()> {
+        #[cfg(feature = "secrets")]
+        {
+            if let Some(store) = open_secret_store(&self.config).await? {
+                store.set_json(DEVICE_TOKEN_SECRET_KEY, token).await?;
+                self.delete_legacy_device_token_file()?;
+                return Ok(());
+            }
+        }
+
+        self.delete_legacy_device_token_file()?;
+        debug!("work-insights: no secret store available, device token will only live for the current process");
+        let _ = token;
+        Ok(())
+    }
+
+    async fn clear_persisted_device_token(&self) -> Result<()> {
+        #[cfg(feature = "secrets")]
+        {
+            if let Some(store) = open_secret_store(&self.config).await? {
+                store.delete(DEVICE_TOKEN_SECRET_KEY).await?;
+            }
+        }
+
+        self.delete_legacy_device_token_file()?;
+        Ok(())
+    }
+
+    fn read_legacy_device_token_file(&self) -> Result<Option<StoredDeviceToken>> {
+        if !self.config.device_token_path.exists() {
+            return Ok(None);
+        }
+        let raw = fs::read(&self.config.device_token_path).with_context(|| {
+            format!(
+                "reading legacy device token {} failed",
+                self.config.device_token_path.display()
+            )
+        })?;
+        if let Ok(token) = serde_json::from_slice::<StoredDeviceToken>(&raw) {
+            if !token.token.trim().is_empty() && !token.app_user_id.trim().is_empty() {
+                return Ok(Some(token));
+            }
+        }
+        if let Ok(token) = serde_json::from_slice::<LegacyStoredDeviceToken>(&raw) {
+            if !token.token.trim().is_empty() {
+                warn!(
+                    "work-insights: deleting legacy device token file without user binding at {}",
+                    self.config.device_token_path.display()
+                );
+                self.delete_legacy_device_token_file()?;
+            }
+            return Ok(None);
+        }
+        Err(anyhow::anyhow!(
+            "parsing legacy device token {} failed",
+            self.config.device_token_path.display()
+        ))
+    }
+
+    fn delete_legacy_device_token_file(&self) -> Result<()> {
+        if self.config.device_token_path.exists() {
+            fs::remove_file(&self.config.device_token_path).with_context(|| {
+                format!(
+                    "deleting legacy device token {} failed",
+                    self.config.device_token_path.display()
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    async fn register_device(
+        &self,
+        ingest_base_url: &str,
+        session_token: &str,
+        app_user_id: &str,
+        session_subject: Option<&str>,
+    ) -> Result<String> {
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("{}/devices/register", ingest_base_url))
+            .bearer_auth(session_token)
+            .json(&RegisterDeviceRequest {
+                device_label: default_device_label(),
+                platform: std::env::consts::OS.to_string(),
+            })
+            .send()
+            .await
+            .context("device registration request failed")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("device registration failed ({}): {}", status, body);
+        }
+
+        let payload: RegisterDeviceResponse = response
+            .json()
+            .await
+            .context("device registration response was invalid")?;
+        self.write_persisted_device_token(&StoredDeviceToken {
+            token: payload.device_token.clone(),
+            app_user_id: app_user_id.to_string(),
+            session_subject: session_subject.map(str::to_owned),
+        })
+        .await?;
+        info!(
+            "work-insights: registered device {} ({})",
+            payload.device_id, payload.device_label
+        );
+        Ok(payload.device_token)
     }
 
     pub async fn run_once(&self) -> Result<WorkInsightsBatch> {
@@ -480,6 +719,74 @@ impl WorkInsightsOrchestrator {
         fs::write(marker_path, serde_json::to_vec_pretty(&marker)?)?;
         Ok(())
     }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredDeviceToken {
+    token: String,
+    app_user_id: String,
+    #[serde(default)]
+    session_subject: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct LegacyStoredDeviceToken {
+    token: String,
+}
+
+fn default_device_label() -> String {
+    std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "screenpipe-device".to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct CurrentAppIdentity {
+    user_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct JwtSessionClaims {
+    sub: String,
+}
+
+fn jwt_subject(session_token: &str) -> Option<String> {
+    let payload = session_token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    serde_json::from_slice::<JwtSessionClaims>(&decoded)
+        .ok()
+        .map(|claims| claims.sub)
+}
+
+#[cfg(feature = "secrets")]
+async fn open_secret_store(
+    config: &WorkInsightsConfig,
+) -> Result<Option<screenpipe_secrets::SecretStore>> {
+    let data_dir = config
+        .spool_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| config.spool_dir.clone());
+    let db_path = data_dir.join("db.sqlite");
+    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+    let pool = sqlx::SqlitePool::connect(&db_url)
+        .await
+        .with_context(|| format!("opening secret store database {} failed", db_path.display()))?;
+    let key = if screenpipe_secrets::is_encryption_requested(&data_dir) {
+        match screenpipe_secrets::keychain::get_key() {
+            screenpipe_secrets::keychain::KeyResult::Found(key) => Some(key),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Ok(Some(
+        screenpipe_secrets::SecretStore::new(pool, key)
+            .await
+            .context("opening secret store failed")?,
+    ))
 }
 
 pub(crate) fn ingest_batch_request(

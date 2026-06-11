@@ -3355,11 +3355,14 @@ name = "work-insights-db"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex",
  "screenpipe-protocol",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]
@@ -3400,6 +3403,7 @@ dependencies = [
  "anyhow",
  "axum",
  "hex",
+ "reqwest",
  "screenpipe-protocol",
  "serde",
  "serde_json",

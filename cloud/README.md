@@ -8,10 +8,8 @@ Portable cloud ingest for Screenpipe work-insights.
 cd cloud
 docker compose up -d
 export WORK_INSIGHTS_DATABASE_URL=postgres://work_insights:work_insights@localhost:55432/work_insights
-export WORK_INSIGHTS_INGEST_TOKEN=dev-token
-export WORK_INSIGHTS_DEFAULT_ORG_ID=org_dev
-export WORK_INSIGHTS_DEFAULT_USER_ID=user_dev
-export WORK_INSIGHTS_DEFAULT_DEVICE_ID=dev_dev
+export SUPABASE_URL=https://<project-ref>.supabase.co
+export SUPABASE_ANON_KEY=<supabase-anon-key>
 export WORK_INSIGHTS_BLOB_BACKEND=local
 export WORK_INSIGHTS_BLOB_DIR=$HOME/.screenpipe/work-insights-cloud/blobs
 export WORK_INSIGHTS_QUEUE_BACKEND=local
@@ -25,6 +23,20 @@ cargo run -p work-insights-ingest-api
 The blob directory defaults to `~/.screenpipe/work-insights-cloud/blobs` and
 the local queue directory defaults to `~/.screenpipe/work-insights-cloud/queue`.
 Both should stay outside the repository.
+
+Bootstrap the first organization + owner before testing `/auth/session/exchange`
+or `/me`:
+
+```bash
+cd cloud
+export WORK_INSIGHTS_DATABASE_URL=postgres://work_insights:work_insights@localhost:55432/work_insights
+cargo run -p work-insights-ingest-api --bin bootstrap_org -- \
+  --org-name "Acme" \
+  --org-slug acme \
+  --owner-supabase-user-id <supabase-user-uuid> \
+  --owner-email founder@acme.com \
+  --domain acme.com
+```
 
 Run the DB worker in another shell:
 
@@ -172,3 +184,25 @@ Stage 3 does not run an internal scheduler. The intended EOD path is:
 
 This keeps the long-running ingest container separate from the short-lived
 report generation workload while reusing the same report pipeline code.
+
+## Identity and Onboarding
+
+The API now splits authenticated user access from background ingest:
+
+- `POST /auth/session/exchange`
+- `GET /me`
+- `POST /devices/register`
+- `GET /devices`
+- `POST /devices/:device_id/revoke`
+
+The user-facing endpoints above expect `Authorization: Bearer <supabase-jwt>`,
+mirror the user into `app_users`, resolve org membership, and manage per-device
+credentials for ingest.
+
+Background ingest endpoints now use `Authorization: Bearer <device-token>` as
+the primary path. The server resolves canonical `org_id`, `app_users.id`, and
+`devices.id` from that token before writing ingest rows.
+
+Authenticated report reads under `/v1/reports/me/*` now use the Supabase JWT
+path again and return correct data for newly ingested rows stamped with
+canonical app and device ids.

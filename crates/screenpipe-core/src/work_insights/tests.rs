@@ -7,8 +7,10 @@
 use std::collections::HashMap;
 use std::fs;
 
+use base64::Engine as _;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use wiremock::matchers::{method, path};
+use serde_json::json;
+use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use crate::work_insights::cleaner::{stable_atom_id, AtomCleaner, RawObservation, RawSearchRecord};
@@ -35,13 +37,55 @@ fn config() -> WorkInsightsConfig {
         max_atoms_per_batch: DEFAULT_MAX_ATOMS_PER_BATCH,
         atom_threshold: DEFAULT_ATOM_THRESHOLD,
         upload_marker_dir: spool_dir.join("uploaded"),
-        spool_dir,
+        spool_dir: spool_dir.clone(),
         upload_enabled: false,
         ingest_base_url: None,
-        ingest_auth_token: None,
+        ingest_session_token: None,
+        device_token_path: spool_dir.join("device-token.json"),
         upload_put_max_retries: DEFAULT_UPLOAD_PUT_MAX_RETRIES,
         upload_put_initial_backoff_secs: DEFAULT_UPLOAD_PUT_INITIAL_BACKOFF_SECS,
     }
+}
+
+fn mock_session_token(subject: &str) -> String {
+    format!(
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.{}.signature",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+            json!({
+                "sub": subject,
+            })
+            .to_string()
+        )
+    )
+}
+
+fn write_pending_batch(
+    tmp: &tempfile::TempDir,
+    batch_id: &str,
+    spool_body: &[u8],
+) -> WorkInsightsBatchManifest {
+    let now = Utc::now();
+    let manifest = WorkInsightsBatchManifest {
+        schema_version: ATOM_SCHEMA_VERSION,
+        batch_id: batch_id.to_string(),
+        start_time: now,
+        end_time: now,
+        atom_count: 0,
+        input_signal_count: 1,
+        dropped_count: 0,
+        cursor_before: WorkInsightsCursorState::default(),
+        cursor_after: WorkInsightsCursorState::default(),
+        spool_file: format!("{batch_id}.jsonl"),
+    };
+    let batch_dir = tmp.path().join("batches");
+    fs::create_dir_all(&batch_dir).unwrap();
+    fs::write(
+        batch_dir.join(format!("{batch_id}.manifest.json")),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    fs::write(batch_dir.join(format!("{batch_id}.jsonl")), spool_body).unwrap();
+    manifest
 }
 
 #[test]
@@ -463,6 +507,121 @@ fn ingest_batch_request_uses_manifest_and_integrity_metadata() {
     assert_eq!(req.input_signal_count, 3);
     assert_eq!(req.byte_count, 42);
     assert_eq!(req.sha256, sha);
+}
+
+#[tokio::test]
+async fn cached_device_token_skips_me_lookup_when_session_subject_matches() {
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = WorkInsightsConfig {
+        spool_dir: tmp.path().to_path_buf(),
+        upload_marker_dir: tmp.path().join("uploaded"),
+        ingest_base_url: Some(server.uri()),
+        ingest_session_token: Some(mock_session_token("auth-user-1")),
+        ..config()
+    };
+    fs::write(
+        &cfg.device_token_path,
+        serde_json::to_vec(&json!({
+            "token": "device-token-1",
+            "app_user_id": "app-user-1",
+            "session_subject": "auth-user-1",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let orchestrator = WorkInsightsOrchestrator::new(cfg).unwrap();
+    let token = orchestrator.resolve_upload_token(&server.uri()).await.unwrap();
+    assert_eq!(token.as_deref(), Some("device-token-1"));
+}
+
+#[tokio::test]
+async fn upload_pending_batches_reuses_refreshed_device_token_for_later_batches() {
+    let control = MockServer::start().await;
+    let storage = MockServer::start().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let session_token = mock_session_token("auth-user-1");
+    let cfg = WorkInsightsConfig {
+        spool_dir: tmp.path().to_path_buf(),
+        upload_marker_dir: tmp.path().join("uploaded"),
+        upload_enabled: true,
+        ingest_base_url: Some(control.uri()),
+        ingest_session_token: Some(session_token.clone()),
+        ..config()
+    };
+    fs::write(
+        &cfg.device_token_path,
+        serde_json::to_vec(&json!({
+            "token": "stale-device-token",
+            "app_user_id": "app-user-1",
+            "session_subject": "auth-user-1",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    write_pending_batch(&tmp, "batch-1", b"{\"batch\":1}\n");
+    write_pending_batch(&tmp, "batch-2", b"{\"batch\":2}\n");
+
+    Mock::given(method("POST"))
+        .and(path("/v1/ingest/upload-ticket"))
+        .and(header("authorization", "Bearer stale-device-token"))
+        .respond_with(ResponseTemplate::new(401))
+        .expect(1)
+        .mount(&control)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/me"))
+        .and(header("authorization", &format!("Bearer {session_token}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "user_id": "app-user-1",
+        })))
+        .expect(1)
+        .mount(&control)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/devices/register"))
+        .and(header("authorization", &format!("Bearer {session_token}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ok": true,
+            "device_id": "device-1",
+            "device_label": "screenpipe-device",
+            "device_token": "fresh-device-token",
+            "platform": std::env::consts::OS,
+        })))
+        .expect(1)
+        .mount(&control)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/ingest/upload-ticket"))
+        .and(header("authorization", "Bearer fresh-device-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ok": true,
+            "method": "PUT",
+            "upload_url": format!("{}/blob", storage.uri()),
+            "headers": {},
+        })))
+        .expect(2)
+        .mount(&control)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/ingest/upload-complete"))
+        .and(header("authorization", "Bearer fresh-device-token"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(2)
+        .mount(&control)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/blob"))
+        .and(header("content-type", "application/x-ndjson"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(2)
+        .mount(&storage)
+        .await;
+
+    let orchestrator = WorkInsightsOrchestrator::new(cfg).unwrap();
+    let uploaded = orchestrator.upload_pending_batches().await.unwrap();
+    assert_eq!(uploaded.len(), 2);
 }
 
 #[test]

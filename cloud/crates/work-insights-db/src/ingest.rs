@@ -221,9 +221,9 @@ async fn insert_atom(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          ON CONFLICT (org_id, atom_id) DO NOTHING",
     )
-    .bind(atom.org_id.as_deref().unwrap_or(&principal.org_id))
-    .bind(atom.user_id.as_deref().unwrap_or(&principal.user_id))
-    .bind(atom.device_id.as_deref().unwrap_or(&principal.device_id))
+    .bind(&principal.org_id)
+    .bind(&principal.user_id)
+    .bind(&principal.device_id)
     .bind(&atom.id)
     .bind(batch_id)
     .bind(atom.frame_id)

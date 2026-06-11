@@ -22,8 +22,6 @@ async fn main() -> anyhow::Result<()> {
 
     let command = parse_command()?;
     let database_url = required_env("WORK_INSIGHTS_DATABASE_URL")?;
-    let default_device_id = std::env::var("WORK_INSIGHTS_DEFAULT_DEVICE_ID")
-        .unwrap_or_else(|_| "report_runner".to_string());
     let config = Arc::new(ReportConfig::from_env()?);
     let pool = PgPoolOptions::new()
         .max_connections(10)
@@ -40,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
             let principal = Principal {
                 org_id: args.org_id,
                 user_id: args.user_id,
-                device_id: args.device_id.unwrap_or_else(|| default_device_id.clone()),
+                device_id: args.device_id.unwrap_or_default(),
             };
             let result = reports::replay_daily_report(
                 &state,

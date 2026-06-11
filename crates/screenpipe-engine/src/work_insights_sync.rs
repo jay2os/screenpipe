@@ -163,7 +163,7 @@ pub fn build_work_insights_config(
     api_auth_key: Option<String>,
     enabled: bool,
     ingest_base_url: Option<String>,
-    ingest_auth_token: Option<String>,
+    ingest_session_token: Option<String>,
     sync_interval_secs: u64,
 ) -> WorkInsightsConfig {
     let mut config = WorkInsightsConfig::default();
@@ -171,18 +171,18 @@ pub fn build_work_insights_config(
     config.auth_token = api_auth_key.filter(|s| !s.trim().is_empty());
     config.sync_interval_secs = sync_interval_secs.max(1);
     config.spool_dir = data_dir.join("work-insights");
+    config.device_token_path = config.spool_dir.join("device-token.json");
     config.upload_marker_dir = config.spool_dir.join("uploaded");
     config.upload_enabled = enabled
         && ingest_base_url
             .as_deref()
             .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
-        && ingest_auth_token
-            .as_deref()
-            .map(|s| !s.trim().is_empty())
             .unwrap_or(false);
     config.ingest_base_url = ingest_base_url.filter(|s| !s.trim().is_empty());
-    config.ingest_auth_token = ingest_auth_token.filter(|s| !s.trim().is_empty());
+    config.ingest_session_token = ingest_session_token
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .cloned();
     config
 }
 
@@ -225,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn upload_stays_disabled_without_ingest_credentials() {
+    fn upload_pass_can_start_without_inline_credentials() {
         let cfg = build_work_insights_config(
             PathBuf::from("/tmp/screenpipe"),
             3030,
@@ -235,6 +235,6 @@ mod tests {
             None,
             42,
         );
-        assert!(!cfg.upload_enabled);
+        assert!(cfg.upload_enabled);
     }
 }

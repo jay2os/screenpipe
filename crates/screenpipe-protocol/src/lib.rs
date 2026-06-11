@@ -9,6 +9,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const WORK_INSIGHTS_SCHEMA_VERSION: u32 = 1;
 pub const WORK_INSIGHTS_CURSOR_SCHEMA_VERSION: u32 = 1;
@@ -150,7 +151,7 @@ pub struct UploadTicketResponse {
     pub method: String,
     pub upload_url: String,
     #[serde(default)]
-    pub headers: std::collections::BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +169,46 @@ pub struct UploadCompleteResponse {
     pub status: String,
     pub atom_count: usize,
     pub input_signal_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegisterDeviceRequest {
+    pub device_label: String,
+    pub platform: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegisterDeviceResponse {
+    pub ok: bool,
+    pub device_id: String,
+    pub device_token: String,
+    pub device_label: String,
+    pub platform: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceSummary {
+    pub device_id: String,
+    pub org_id: String,
+    pub user_id: String,
+    pub device_label: String,
+    pub platform: String,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListDevicesResponse {
+    pub ok: bool,
+    pub devices: Vec<DeviceSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevokeDeviceResponse {
+    pub ok: bool,
+    pub device_id: String,
+    pub revoked: bool,
 }
 
 #[cfg(test)]

@@ -597,7 +597,7 @@ pub struct RecordArgs {
     #[arg(long, env = "SCREENPIPE_WORK_INSIGHTS_INGEST_BASE_URL")]
     pub work_insights_ingest_base_url: Option<String>,
 
-    /// Bearer token used to authenticate work-insights ingest uploads.
+    /// Supabase bearer token used to bootstrap a work-insights device token.
     #[arg(long, env = "SCREENPIPE_WORK_INSIGHTS_INGEST_TOKEN")]
     pub work_insights_ingest_auth_token: Option<String>,
 

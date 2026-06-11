@@ -606,10 +606,7 @@ async fn main() -> anyhow::Result<()> {
                     );
                     map.insert(
                         "work_insights_ingest_configured".into(),
-                        json!(
-                            config.work_insights_ingest_base_url.is_some()
-                                && config.work_insights_ingest_auth_token.is_some()
-                        ),
+                        json!(config.work_insights_ingest_base_url.is_some()),
                     );
                     map.insert("debug".into(), json!(record_args.debug));
                     map.insert("api_auth".into(), json!(config.api_auth));

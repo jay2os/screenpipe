@@ -43,7 +43,8 @@ pub struct WorkInsightsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ingest_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ingest_auth_token: Option<String>,
+    pub ingest_session_token: Option<String>,
+    pub device_token_path: PathBuf,
     pub upload_marker_dir: PathBuf,
     pub upload_put_max_retries: u32,
     pub upload_put_initial_backoff_secs: u64,
@@ -65,7 +66,8 @@ impl Default for WorkInsightsConfig {
             spool_dir,
             upload_enabled: false,
             ingest_base_url: None,
-            ingest_auth_token: None,
+            ingest_session_token: None,
+            device_token_path: default_spool_dir().join("device-token.json"),
             upload_put_max_retries: DEFAULT_UPLOAD_PUT_MAX_RETRIES,
             upload_put_initial_backoff_secs: DEFAULT_UPLOAD_PUT_INITIAL_BACKOFF_SECS,
         }
@@ -91,6 +93,9 @@ impl WorkInsightsConfig {
             .ingest_base_url
             .as_ref()
             .map(|url| url.trim_end_matches('/').to_string());
+        if out.device_token_path.as_os_str().is_empty() {
+            out.device_token_path = out.spool_dir.join("device-token.json");
+        }
         out
     }
 }
