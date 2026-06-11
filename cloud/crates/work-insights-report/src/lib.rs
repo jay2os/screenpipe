@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use ai_gateway::{AiGateway as SharedAiGateway, GatewayConfig};
@@ -16,40 +17,133 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use work_insights_db::reports as db_reports;
+use work_insights_db::DbError;
 use work_insights_db::{
     AtomRecord, DailyReport, Principal, SegmentReport, SignalRecord, TimelineEntry,
     TimelineSegmentRecord,
 };
 
-use crate::{sha256_hex, AppError, AppState};
-
 const SEGMENT_GAP_MINUTES: i64 = 10;
 const LOW_DATA_ATOM_THRESHOLD: usize = 5;
 
+#[derive(Debug, Clone)]
+pub struct ReportConfig {
+    pub ai_base_url: String,
+    pub ai_api_key: Option<String>,
+    pub ai_segment_model: String,
+    pub ai_daily_model: String,
+    pub segment_prompt_version: String,
+    pub daily_prompt_version: String,
+    pub segment_prompt: String,
+    pub daily_prompt: String,
+}
+
+impl ReportConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        Ok(Self {
+            ai_base_url: std::env::var("WORK_INSIGHTS_AI_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:11434/v1".to_string()),
+            ai_api_key: std::env::var("WORK_INSIGHTS_AI_API_KEY").ok(),
+            ai_segment_model: std::env::var("WORK_INSIGHTS_AI_SEGMENT_MODEL")
+                .unwrap_or_else(|_| "qwen2.5:7b-instruct".to_string()),
+            ai_daily_model: std::env::var("WORK_INSIGHTS_AI_DAILY_MODEL")
+                .unwrap_or_else(|_| "qwen2.5:14b-instruct".to_string()),
+            segment_prompt_version: std::env::var("WORK_INSIGHTS_SEGMENT_PROMPT_VERSION")
+                .unwrap_or_else(|_| "stage3-segment-v1".to_string()),
+            daily_prompt_version: std::env::var("WORK_INSIGHTS_DAILY_PROMPT_VERSION")
+                .unwrap_or_else(|_| "stage3-daily-v1".to_string()),
+            segment_prompt: load_prompt(
+                "WORK_INSIGHTS_SEGMENT_PROMPT",
+                include_str!("../prompts/segment_v1.txt"),
+            )?,
+            daily_prompt: load_prompt(
+                "WORK_INSIGHTS_DAILY_PROMPT",
+                include_str!("../prompts/daily_v1.txt"),
+            )?,
+        })
+    }
+}
+
+fn load_prompt(inline_env: &str, default_prompt: &str) -> anyhow::Result<String> {
+    if let Ok(prompt) = std::env::var(inline_env) {
+        return Ok(prompt.trim().to_string());
+    }
+    Ok(default_prompt.trim().to_string())
+}
+
+#[derive(Clone)]
+pub struct ReportState {
+    pub config: Arc<ReportConfig>,
+    pub pool: PgPool,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReportError {
+    #[error("{0}")]
+    BadRequest(String),
+    #[error("{0}")]
+    NotFound(String),
+    #[error("{0}")]
+    Internal(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+impl axum::response::IntoResponse for ReportError {
+    fn into_response(self) -> axum::response::Response {
+        let status = match self {
+            ReportError::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
+            ReportError::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            ReportError::Internal(_)
+            | ReportError::Io(_)
+            | ReportError::Sqlx(_)
+            | ReportError::Json(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        let message = self.to_string();
+        (status, Json(json!({ "ok": false, "error": message }))).into_response()
+    }
+}
+
+impl From<DbError> for ReportError {
+    fn from(err: DbError) -> Self {
+        match err {
+            DbError::Sqlx(err) => Self::Sqlx(err),
+            DbError::Json(err) => Self::Json(err),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
-pub(crate) struct GenerateDailyReportRequest {
+pub struct GenerateDailyReportRequest {
     pub(crate) date: String,
     #[serde(default)]
     pub(crate) force: bool,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ReplayOptions {
-    pub(crate) force: bool,
-    pub(crate) persist: bool,
-    pub(crate) dump_prompts_dir: Option<PathBuf>,
-    pub(crate) fixture_dir: Option<PathBuf>,
+pub struct ReplayOptions {
+    pub force: bool,
+    pub persist: bool,
+    pub dump_prompts_dir: Option<PathBuf>,
+    pub fixture_dir: Option<PathBuf>,
 }
 
-pub(crate) async fn generate_daily_report(
-    state: &AppState,
+pub async fn generate_daily_report(
+    state: &ReportState,
     principal: &Principal,
     req: GenerateDailyReportRequest,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<Value>, ReportError> {
     let report_date = parse_report_date(&req.date)?;
     if !req.force {
         if let Some(existing) = get_user_report_row(
-            &state.pool, &principal.org_id, &principal.user_id, report_date,
+            &state.pool,
+            &principal.org_id,
+            &principal.user_id,
+            report_date,
         )
         .await?
         {
@@ -87,12 +181,12 @@ pub(crate) async fn generate_daily_report(
     })))
 }
 
-pub(crate) async fn replay_daily_report(
-    state: &AppState,
+pub async fn replay_daily_report(
+    state: &ReportState,
     principal: &Principal,
     date: &str,
     options: ReplayOptions,
-) -> Result<Value, AppError> {
+) -> Result<Value, ReportError> {
     let report_date = parse_report_date(date)?;
     let run = run_daily_report(state, principal, report_date, options.clone()).await?;
     Ok(json!({
@@ -118,11 +212,11 @@ struct DailyRunResult {
 }
 
 async fn run_daily_report(
-    state: &AppState,
+    state: &ReportState,
     principal: &Principal,
     report_date: NaiveDate,
     options: ReplayOptions,
-) -> Result<DailyRunResult, AppError> {
+) -> Result<DailyRunResult, ReportError> {
     let (day_start, day_end) = utc_day_bounds(report_date)?;
     let atoms = db_reports::load_atoms(&state.pool, principal, day_start, day_end).await?;
     let signals = db_reports::load_signals(&state.pool, principal, day_start, day_end).await?;
@@ -189,16 +283,16 @@ async fn run_daily_report(
     })
 }
 
-pub(crate) async fn get_daily_report(
+pub async fn get_daily_report(
     pool: &PgPool,
     principal: &Principal,
     date: &str,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<Value>, ReportError> {
     let report_date = parse_report_date(date)?;
     let Some(row) =
         get_user_report_row(pool, &principal.org_id, &principal.user_id, report_date).await?
     else {
-        return Err(AppError::NotFound("daily report not found".to_string()));
+        return Err(ReportError::NotFound("daily report not found".to_string()));
     };
     Ok(Json(json!({
         "ok": true,
@@ -211,15 +305,19 @@ pub(crate) async fn get_daily_report(
     })))
 }
 
-pub(crate) async fn get_daily_timeline(
+pub async fn get_daily_timeline(
     pool: &PgPool,
     principal: &Principal,
     date: &str,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<Value>, ReportError> {
     let report_date = parse_report_date(date)?;
-    let rows =
-        db_reports::get_daily_timeline_rows(pool, &principal.org_id, &principal.user_id, report_date)
-            .await?;
+    let rows = db_reports::get_daily_timeline_rows(
+        pool,
+        &principal.org_id,
+        &principal.user_id,
+        report_date,
+    )
+    .await?;
 
     let mut segments = Vec::with_capacity(rows.len());
     for row in rows {
@@ -242,15 +340,15 @@ pub(crate) async fn get_daily_timeline(
     })))
 }
 
-pub(crate) async fn get_evidence(
+pub async fn get_evidence(
     pool: &PgPool,
     principal: &Principal,
     atom_id: &str,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<Value>, ReportError> {
     let Some(row) =
         db_reports::get_evidence_row(pool, &principal.org_id, &principal.user_id, atom_id).await?
     else {
-        return Err(AppError::NotFound("evidence not found".to_string()));
+        return Err(ReportError::NotFound("evidence not found".to_string()));
     };
 
     Ok(Json(json!({
@@ -268,15 +366,15 @@ pub(crate) async fn get_evidence(
     })))
 }
 
-pub(crate) fn parse_report_date(value: &str) -> Result<NaiveDate, AppError> {
+pub(crate) fn parse_report_date(value: &str) -> Result<NaiveDate, ReportError> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map_err(|_| AppError::BadRequest("date must be YYYY-MM-DD".to_string()))
+        .map_err(|_| ReportError::BadRequest("date must be YYYY-MM-DD".to_string()))
 }
 
-fn utc_day_bounds(date: NaiveDate) -> Result<(DateTime<Utc>, DateTime<Utc>), AppError> {
+fn utc_day_bounds(date: NaiveDate) -> Result<(DateTime<Utc>, DateTime<Utc>), ReportError> {
     let start = date
         .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| AppError::BadRequest("invalid day start".to_string()))?;
+        .ok_or_else(|| ReportError::BadRequest("invalid day start".to_string()))?;
     let end = start + Duration::days(1);
     Ok((
         DateTime::<Utc>::from_naive_utc_and_offset(start, Utc),
@@ -450,7 +548,7 @@ async fn generate_segment_reports(
     segments: &[TimelineSegmentRecord],
     ai: &AiGateway,
     dump_prompts_dir: Option<&Path>,
-) -> Result<Vec<SegmentReport>, AppError> {
+) -> Result<Vec<SegmentReport>, ReportError> {
     let mut reports = Vec::with_capacity(segments.len());
     for segment in segments {
         if let Some(cached) = db_reports::load_cached_segment_report(
@@ -509,11 +607,7 @@ async fn generate_segment_reports(
             "user_prompt": prompt_payload,
             "chat_request": chat_request_body(&ai.segment_model, system_prompt, &user_prompt),
         });
-        dump_segment_prompt(
-            dump_prompts_dir,
-            &segment.segment_id,
-            &request_json,
-        )?;
+        dump_segment_prompt(dump_prompts_dir, &segment.segment_id, &request_json)?;
         let ai_value = ai
             .chat_json(
                 &ai.segment_model,
@@ -544,11 +638,12 @@ async fn generate_segment_reports(
                     duration_ms,
                 )
                 .await?;
-                return Err(AppError::Internal(error));
+                return Err(ReportError::Internal(error));
             }
         };
         let duration_ms = started.elapsed().as_millis() as i64;
-        let mut parsed: SegmentReport = match serde_json::from_value(ai_value.response_json.clone()) {
+        let mut parsed: SegmentReport = match serde_json::from_value(ai_value.response_json.clone())
+        {
             Ok(parsed) => parsed,
             Err(err) => {
                 let error = format!("segment JSON parse failed: {err}");
@@ -569,7 +664,7 @@ async fn generate_segment_reports(
                     duration_ms,
                 )
                 .await?;
-                return Err(AppError::Internal(error));
+                return Err(ReportError::Internal(error));
             }
         };
         if let Err(err) = validate_segment_report(&mut parsed, segment) {
@@ -635,7 +730,7 @@ async fn generate_daily_reducer(
     segment_reports: &[SegmentReport],
     ai: &AiGateway,
     dump_prompts_dir: Option<&Path>,
-) -> Result<DailyReport, AppError> {
+) -> Result<DailyReport, ReportError> {
     let atom_lookup = build_atom_lookup(atoms);
     let reducer_payload = json!({
         "date": report_date,
@@ -702,7 +797,7 @@ async fn generate_daily_reducer(
                 duration_ms,
             )
             .await?;
-            return Err(AppError::Internal(error));
+            return Err(ReportError::Internal(error));
         }
     };
     let duration_ms = started.elapsed().as_millis() as i64;
@@ -727,7 +822,7 @@ async fn generate_daily_reducer(
                 duration_ms,
             )
             .await?;
-            return Err(AppError::Internal(error));
+            return Err(ReportError::Internal(error));
         }
     };
     if let Err(err) = validate_daily_report(&mut report, segments) {
@@ -786,7 +881,7 @@ fn dump_segment_prompt(
     dump_dir: Option<&Path>,
     segment_id: &str,
     request_json: &Value,
-) -> Result<(), AppError> {
+) -> Result<(), ReportError> {
     let Some(dir) = dump_dir else {
         return Ok(());
     };
@@ -799,7 +894,7 @@ fn dump_segment_prompt(
     Ok(())
 }
 
-fn dump_daily_prompt(dump_dir: Option<&Path>, request_json: &Value) -> Result<(), AppError> {
+fn dump_daily_prompt(dump_dir: Option<&Path>, request_json: &Value) -> Result<(), ReportError> {
     let Some(dir) = dump_dir else {
         return Ok(());
     };
@@ -815,7 +910,7 @@ fn dump_daily_prompt(dump_dir: Option<&Path>, request_json: &Value) -> Result<()
 fn validate_segment_report(
     report: &mut SegmentReport,
     segment: &TimelineSegmentRecord,
-) -> Result<(), AppError> {
+) -> Result<(), ReportError> {
     let valid_ids = segment.atom_ids.iter().cloned().collect::<BTreeSet<_>>();
     report.evidence_atom_ids.retain(|id| valid_ids.contains(id));
     for blocker in &mut report.blockers {
@@ -852,7 +947,7 @@ fn validate_segment_report(
 fn validate_daily_report(
     report: &mut DailyReport,
     segments: &[TimelineSegmentRecord],
-) -> Result<(), AppError> {
+) -> Result<(), ReportError> {
     let valid_ids = segments
         .iter()
         .flat_map(|segment| segment.atom_ids.iter().cloned())
@@ -942,15 +1037,21 @@ fn build_atom_lookup(atoms: &[AtomRecord]) -> BTreeMap<String, AtomRecord> {
         .collect()
 }
 
+fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
+}
+
 async fn get_user_report_row(
     pool: &PgPool,
     org_id: &str,
     user_id: &str,
     report_date: NaiveDate,
-) -> Result<Option<work_insights_db::UserReportRow>, AppError> {
+) -> Result<Option<work_insights_db::UserReportRow>, ReportError> {
     db_reports::get_user_report_row(pool, org_id, user_id, report_date)
         .await
-        .map_err(AppError::from)
+        .map_err(ReportError::from)
 }
 
 struct AiGateway {
@@ -971,12 +1072,15 @@ struct AiJsonResult {
 }
 
 impl AiGateway {
-    fn new(config: &crate::Config, fixture_dir_override: Option<PathBuf>) -> Result<Self, AppError> {
+    fn new(
+        config: &ReportConfig,
+        fixture_dir_override: Option<PathBuf>,
+    ) -> Result<Self, ReportError> {
         let client = SharedAiGateway::new(GatewayConfig {
             base_url: config.ai_base_url.clone(),
             api_key: config.ai_api_key.clone(),
         })
-        .map_err(|err| AppError::Internal(format!("failed to build AI HTTP client: {err}")))?;
+        .map_err(|err| ReportError::Internal(format!("failed to build AI HTTP client: {err}")))?;
         Ok(Self {
             client,
             segment_model: config.ai_segment_model.clone(),

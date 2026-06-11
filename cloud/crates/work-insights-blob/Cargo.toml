@@ -1,0 +1,16 @@
+[package]
+name = "work-insights-blob"
+version = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+azure_storage = { version = "0.21.0", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_storage_blobs = { version = "0.21.0", default-features = false, features = ["enable_reqwest_rustls"] }
+futures = "0.3"
+tokio = { workspace = true }

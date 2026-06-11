@@ -61,7 +61,8 @@ pub async fn get_daily_timeline_rows(
     let mut segments = Vec::with_capacity(rows.len());
     for row in rows {
         let segment_id: String = row.try_get("segment_id")?;
-        let summary = load_latest_segment_summary(pool, org_id, user_id, report_date, &segment_id).await?;
+        let summary =
+            load_latest_segment_summary(pool, org_id, user_id, report_date, &segment_id).await?;
         segments.push(DailyTimelineRow {
             segment_id,
             start_time: row.try_get("start_time")?,

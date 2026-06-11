@@ -46,13 +46,15 @@ Completed. The cloud ingestion path now exists end to end:
 
 - Add upload ticket / batch ingest plumbing.
 - Upload the local JSONL spools to the portable cloud adapter.
-- Persist normalized atoms, input signals, batch manifests, and cursors in the cloud store.
+- Archive uploaded JSONL batches in blob storage.
+- Queue blob-pointer ingest jobs for asynchronous processing.
+- Persist normalized atoms, input signals, batch manifests, and cursors in the cloud store from `work-insights-db-worker`.
 - Add idempotent upload completion handling and retry semantics.
 
 Pending validation:
 
 - Run a live end-to-end smoke with the engine process once the unrelated native `antirez-asr-sys` build issue is resolved.
-- Confirm a real local batch moves from `screenpipe-core` spool -> `cloud/` upload -> Postgres rows -> blob archive.
+- Confirm a real local batch moves from `screenpipe-core` spool -> `work-insights-api` upload -> blob archive -> queue -> `work-insights-db-worker` -> Postgres rows.
 
 ### Stage 3: Daily report generation
 
@@ -67,7 +69,7 @@ Still deferred:
 
 - Org reducer.
 - Manager/org aggregation APIs.
-- Internal EOD scheduler. Current scheduling seam is the manual generation API.
+- Internal EOD scheduler. Current scheduling seam is the external `work-insights-report-runner generate-daily` job.
 
 ## Architecture
 
@@ -98,6 +100,14 @@ Still deferred:
     - `AuthProvider`
     - `ReportStore`
   - Cloud lives in its own Rust workspace under `cloud/`, excluded from the root Screenpipe workspace so deps, binaries, and release cadence stay isolated while still living in one repo.
+  - Cloud deployable processes live under `cloud/services/<service-name>`.
+  - Cloud reusable domain, storage, and infrastructure logic lives under `cloud/crates/<crate-name>`.
+  - Service crates should stay thin: process startup, config, routes or worker loops, and calls into library crates.
+  - Infrastructure adapters are selected by env-driven factories in the crate that owns the interface, e.g. `blob_store_from_env()` and `queue_from_env()`. Service crates should not switch on provider-specific details directly.
+  - Current services:
+    - `cloud/services/ingest-api`: public HTTP ingest and report-read API.
+    - `cloud/services/db-worker`: private queue consumer that writes uploaded batches to Postgres.
+    - `cloud/services/report-runner`: scheduled daily report generator.
   - Shared DTOs live in a separate `crates/screenpipe-protocol` crate only if local and cloud sides truly need the exact same wire shapes. DTO means a plain Data Transfer Object: a serializable struct/schema with no business logic. Do not create the crate preemptively.
   - Azure adapter:
     - PostgreSQL for records/reports.
@@ -120,6 +130,8 @@ Screenpipe capture
 -> content atom extractor
 -> local sync batch
 -> cloud ingest
+-> blob archive + ingest queue
+-> db worker
 -> normalized records
 -> deterministic timeline segmentation
 -> segment extraction agents

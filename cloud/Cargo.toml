@@ -1,8 +1,14 @@
 [workspace]
 members = [
     "crates/ai-gateway",
-    "crates/work-insights-api",
+    "crates/work-insights-blob",
     "crates/work-insights-db",
+    "crates/work-insights-ingest",
+    "crates/work-insights-queue",
+    "crates/work-insights-report",
+    "services/db-worker",
+    "services/ingest-api",
+    "services/report-runner",
 ]
 resolver = "2"
 

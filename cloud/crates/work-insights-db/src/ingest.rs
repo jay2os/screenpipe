@@ -41,6 +41,76 @@ pub async fn batch_status(pool: &PgPool, org_id: &str, batch_id: &str) -> Result
     )
 }
 
+pub async fn mark_batch_uploaded(
+    pool: &PgPool,
+    org_id: &str,
+    batch_id: &str,
+    object_key: &str,
+) -> Result<(), DbError> {
+    mark_batch_status(pool, org_id, batch_id, "uploaded", Some(object_key), None).await
+}
+
+pub async fn mark_batch_queued(
+    pool: &PgPool,
+    org_id: &str,
+    batch_id: &str,
+    object_key: &str,
+) -> Result<(), DbError> {
+    mark_batch_status(pool, org_id, batch_id, "queued", Some(object_key), None).await
+}
+
+pub async fn mark_batch_processing(
+    pool: &PgPool,
+    org_id: &str,
+    batch_id: &str,
+) -> Result<(), DbError> {
+    mark_batch_status(pool, org_id, batch_id, "processing", None, None).await
+}
+
+pub async fn mark_batch_failed(
+    pool: &PgPool,
+    org_id: &str,
+    batch_id: &str,
+    error: &str,
+) -> Result<(), DbError> {
+    mark_batch_status(pool, org_id, batch_id, "failed", None, Some(error)).await
+}
+
+pub async fn mark_batch_dead_lettered(
+    pool: &PgPool,
+    org_id: &str,
+    batch_id: &str,
+    error: &str,
+) -> Result<(), DbError> {
+    mark_batch_status(pool, org_id, batch_id, "dead_lettered", None, Some(error)).await
+}
+
+async fn mark_batch_status(
+    pool: &PgPool,
+    org_id: &str,
+    batch_id: &str,
+    status: &str,
+    object_key: Option<&str>,
+    error: Option<&str>,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE sync_batches
+         SET status = $3,
+             object_key = COALESCE($4, object_key),
+             error = $5,
+             updated_at = now()
+         WHERE org_id = $1 AND batch_id = $2",
+    )
+    .bind(org_id)
+    .bind(batch_id)
+    .bind(status)
+    .bind(object_key)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn upsert_pending_batch(
     pool: &PgPool,
     principal: &Principal,

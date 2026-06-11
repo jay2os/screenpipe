@@ -1,0 +1,20 @@
+[package]
+name = "work-insights-db-worker"
+version = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+work-insights-blob = { path = "../../crates/work-insights-blob" }
+work-insights-db = { path = "../../crates/work-insights-db" }
+work-insights-ingest = { path = "../../crates/work-insights-ingest" }
+work-insights-queue = { path = "../../crates/work-insights-queue" }

@@ -9,6 +9,10 @@ use serde_json::Value;
 pub mod ingest;
 pub mod reports;
 
+pub async fn migrate(pool: &sqlx::PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    sqlx::migrate!("./migrations").run(pool).await
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     #[error(transparent)]

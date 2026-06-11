@@ -1,0 +1,19 @@
+[package]
+name = "work-insights-ingest"
+version = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+screenpipe-protocol = { path = "../../../crates/screenpipe-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+work-insights-db = { path = "../work-insights-db" }
