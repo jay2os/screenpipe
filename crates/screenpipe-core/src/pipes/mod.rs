@@ -61,6 +61,27 @@ pub struct TriggerConfig {
     pub custom: Vec<String>,
 }
 
+/// Declares a file that a pipe produces, surfaced in the Artifacts library.
+///
+/// Example frontmatter:
+/// ```yaml
+/// artifacts:
+///   - path: "output/profile.md"
+///     title: "Digital Clone Profile"
+///     kind: "markdown"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactDeclaration {
+    /// Path relative to the pipe directory (e.g. "output/profile.md").
+    pub path: String,
+    /// Human-readable title shown in the library (falls back to filename).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// File kind hint: "markdown", "json", "text", "image".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
 /// Parsed pipe configuration (from pipe.md front-matter).
 ///
 /// Only `schedule` and `enabled` are required in pipe.md.
@@ -96,8 +117,10 @@ pub struct PipeConfig {
     )]
     pub preset: Vec<String>,
 
-    /// Connections this pipe uses (e.g. `["obsidian", "slack"]`).
-    /// The AI can query `GET /connections/<id>` at runtime to get credentials.
+    /// Connections this pipe uses (e.g. `["obsidian", "slack", "github"]`).
+    /// Credential integrations: `GET /connections/<id>` returns saved fields.
+    /// OAuth/proxy integrations: call `POST /connections/<id>/proxy/<api-path>`
+    /// (the proxy injects auth; raw tokens are never exposed).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connections: Vec<String>,
 
@@ -164,6 +187,19 @@ pub struct PipeConfig {
     /// redaction moved to the at-rest redact worker.
     #[serde(default, skip_serializing_if = "is_false")]
     pub privacy_filter: bool,
+
+    /// Output files this pipe produces, surfaced in the Artifacts library.
+    ///
+    /// Paths are relative to the pipe directory (`~/.screenpipe/pipes/<name>/`).
+    /// Example:
+    /// ```yaml
+    /// artifacts:
+    ///   - path: "output/profile.md"
+    ///     title: "Digital Clone Profile"
+    ///     kind: "markdown"
+    /// ```
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<ArtifactDeclaration>,
 
     /// Catches any extra fields from front-matter (backwards compat).
     #[serde(default, flatten, skip_serializing_if = "HashMap::is_empty")]
@@ -352,6 +388,34 @@ fn simple_hash(content: &str) -> String {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     format!("{:016x}", hash)
+}
+
+/// Normalize a path by resolving `.` and `..` components without touching
+/// the filesystem (works even if the path doesn't exist yet). Used to
+/// prevent artifact path traversal escaping the pipe directory.
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// Keep the newest `cap` files by mtime (ties broken by path, descending,
+/// so the result is deterministic on filesystems with coarse mtimes).
+fn select_newest_files(
+    mut files: Vec<(std::path::PathBuf, std::time::SystemTime)>,
+    cap: usize,
+) -> Vec<(std::path::PathBuf, std::time::SystemTime)> {
+    files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
+    files.truncate(cap);
+    files
 }
 
 // ---------------------------------------------------------------------------
@@ -1187,6 +1251,9 @@ async fn setup_pipe_permissions(
     if let Err(e) = PiExecutor::ensure_subagent_extension(pipe_dir, config.subagent) {
         warn!("failed to install sub-agent extension: {}", e);
     }
+    if let Err(e) = PiExecutor::ensure_register_artifact_extension(pipe_dir) {
+        warn!("failed to install register-artifact extension: {}", e);
+    }
     if let Err(e) = PiExecutor::ensure_screenpipe_skill_filtered(pipe_dir, config) {
         warn!("failed to install filtered skills: {}", e);
     }
@@ -1652,6 +1719,88 @@ impl PipeManager {
                 status.consecutive_failures = state.consecutive_failures;
             }
             result.push(status);
+        }
+        result
+    }
+
+    /// Return all artifact declarations across pipes, with paths resolved to
+    /// absolute locations under `pipes_dir`. Paths that escape the pipe
+    /// directory (e.g. `../secret`) are silently dropped. Caller is
+    /// responsible for filesystem checks (existence, metadata).
+    ///
+    /// Two exclusive modes per pipe:
+    /// - If the pipe declares `artifacts:` in frontmatter, use only those.
+    /// - Otherwise, fall back to scanning `<pipe_dir>/output/` for files,
+    ///   keeping only the newest `fallback_cap` by mtime. Chatty pipes write
+    ///   hundreds of files there; without a cap a single pipe dominates the
+    ///   listing and the payload grows unbounded.
+    pub async fn list_artifact_declarations(
+        &self,
+        fallback_cap: usize,
+    ) -> Vec<(String, Vec<(ArtifactDeclaration, std::path::PathBuf)>)> {
+        let pipes = self.pipes.lock().await;
+        let mut result = Vec::new();
+        for (name, (config, _, _)) in pipes.iter() {
+            let pipe_dir = self.pipes_dir.join(name);
+            let mut resolved: Vec<(ArtifactDeclaration, std::path::PathBuf)> = Vec::new();
+
+            if !config.artifacts.is_empty() {
+                // Explicit frontmatter declarations — use only these
+                for a in &config.artifacts {
+                    let abs = pipe_dir.join(&a.path);
+                    let normalized = normalize_path(&abs);
+                    if !normalized.starts_with(&pipe_dir) {
+                        tracing::warn!(
+                            "pipe '{}': artifact path '{}' escapes pipe directory, skipping",
+                            name,
+                            a.path,
+                        );
+                        continue;
+                    }
+                    resolved.push((a.clone(), normalized));
+                }
+            } else {
+                // Fallback: no declarations → scan <pipe_dir>/output/, newest
+                // `fallback_cap` files by mtime.
+                let output_dir = pipe_dir.join("output");
+                let mut candidates: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
+                if let Ok(mut entries) = tokio::fs::read_dir(&output_dir).await {
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        let path = entry.path();
+                        if !path.is_file() {
+                            continue;
+                        }
+                        let mtime = entry
+                            .metadata()
+                            .await
+                            .and_then(|m| m.modified())
+                            .unwrap_or(std::time::UNIX_EPOCH);
+                        candidates.push((path, mtime));
+                    }
+                }
+                for (path, _) in select_newest_files(candidates, fallback_cap) {
+                    let kind = match path.extension().and_then(|e| e.to_str()) {
+                        Some("md") => "markdown",
+                        Some("json") => "json",
+                        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg") => "image",
+                        _ => "text",
+                    };
+                    let file_name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let decl = ArtifactDeclaration {
+                        path: format!("output/{}", file_name),
+                        title: None,
+                        kind: Some(kind.to_string()),
+                    };
+                    resolved.push((decl, normalize_path(&path)));
+                }
+            }
+
+            if !resolved.is_empty() {
+                result.push((name.clone(), resolved));
+            }
         }
         result
     }
@@ -3396,7 +3545,7 @@ impl PipeManager {
                     }
 
                     // Setup-mode gate: pipes whose declared `connections` aren't
-                    // all configured (`enabled && credentials present`) must not
+                    // all configured (credentials or OAuth token present) must not
                     // run on schedule or event. Mirrors the manual-run gate in
                     // pipes_api::run_pipe_now. Placed after the schedule/queue
                     // checks so we only hit the SecretStore when the pipe would
@@ -4809,6 +4958,42 @@ mod tests {
         PipeManager::new(dir, HashMap::new(), None, 0)
     }
 
+    #[test]
+    fn test_select_newest_files_caps_by_mtime() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let f = |name: &str, secs: u64| {
+            (
+                std::path::PathBuf::from(name),
+                UNIX_EPOCH + Duration::from_secs(secs),
+            )
+        };
+        let files = vec![
+            f("a.md", 100),
+            f("b.md", 300),
+            f("c.md", 200),
+            f("d.md", 400),
+        ];
+        let kept = select_newest_files(files, 2);
+        let names: Vec<_> = kept
+            .iter()
+            .map(|(p, _)| p.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["d.md", "b.md"]);
+
+        // ties broken deterministically by path desc
+        let files = vec![f("a.md", 100), f("b.md", 100), f("c.md", 100)];
+        let kept = select_newest_files(files, 2);
+        let names: Vec<_> = kept
+            .iter()
+            .map(|(p, _)| p.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["c.md", "b.md"]);
+
+        // cap larger than input keeps everything
+        let files = vec![f("a.md", 100)];
+        assert_eq!(select_newest_files(files, 50).len(), 1);
+    }
+
     #[tokio::test]
     async fn test_scheduler_starts_and_stops() {
         let mut pm = test_pipe_manager();
@@ -5060,6 +5245,7 @@ mod tests {
             source_hash: None,
             subagent: false,
             privacy_filter: false,
+            artifacts: vec![],
             trigger: None,
         };
         let body = "Do something useful";
@@ -5473,6 +5659,7 @@ mod tests {
             source_hash: None,
             subagent: false,
             privacy_filter: false,
+            artifacts: vec![],
             trigger: None,
         };
         let prompt = render_prompt_with_port(&config, "body text", 3031, None, None);
@@ -5505,6 +5692,7 @@ mod tests {
             source_hash: None,
             subagent: false,
             privacy_filter: false,
+            artifacts: vec![],
             trigger: None,
         };
         let sys = render_pipe_system_prompt("hello", 3030, None, None, None);
@@ -5530,6 +5718,7 @@ mod tests {
             source_hash: None,
             subagent: false,
             privacy_filter: false,
+            artifacts: vec![],
             trigger: None,
         };
         let sys = render_pipe_system_prompt(
@@ -5563,6 +5752,7 @@ mod tests {
             source_hash: None,
             subagent: false,
             privacy_filter: false,
+            artifacts: vec![],
             trigger: None,
         };
         let sys = render_pipe_system_prompt("body text", 3030, None, None, None);
@@ -5665,6 +5855,7 @@ mod tests {
                 source_hash: None,
                 subagent: false,
                 privacy_filter: false,
+                artifacts: vec![],
                 trigger: None,
             },
             last_run: None,
