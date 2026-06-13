@@ -795,7 +795,7 @@ function HomeContent() {
   };
 
   // Top-level nav items
-  const mainSections = [];
+  const mainSections: { id: string; icon: React.ReactNode; label: string }[] = [];
 
   // Listen for navigation events from other windows (e.g. tray, Rust-side links)
   useEffect(() => {
