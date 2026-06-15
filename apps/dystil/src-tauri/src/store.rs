@@ -670,7 +670,6 @@ pub struct SettingsStore {
     // (`RecordingSettings::disable_timeline`) so the engine can read it too. The
     // frontend JSON key stays `disableTimeline` at the top level via serde
     // flatten — do not add a second field here or serde will conflict.
-
     /// When true, the chat window stays above all other windows (default: true).
     #[serde(rename = "chatAlwaysOnTop", default = "default_true")]
     pub chat_always_on_top: bool,
@@ -1272,37 +1271,7 @@ impl SettingsStore {
     }
 
     pub fn app_entitled_or_dev(&self) -> bool {
-        // Debug builds (`bun tauri dev`, e2e, signed dev builds) are never gated.
-        // Release builds must not be bypassable via a runtime env var.
-        if cfg!(debug_assertions) {
-            return true;
-        }
-
-        // Legacy cloud subscribers keep working during rollout.
-        if self.user.cloud_subscribed == Some(true) {
-            return true;
-        }
-
-        let Some(entitlement) = self.user.entitlement.as_ref() else {
-            return false;
-        };
-
-        let has_app_feature =
-            self.user.app_entitled == Some(true) || entitlement_feature(entitlement, "app");
-        if !has_app_feature {
-            return false;
-        }
-
-        // Perpetual (lifetime) grants and server-issued offline grace windows stay
-        // valid even when the cached entitlement is stale. A local-first app must
-        // not stop recording just because it could not reach the server for a few
-        // days.
-        if entitlement_is_lifetime(entitlement) || entitlement_has_future_grace(entitlement) {
-            return true;
-        }
-
-        // Otherwise require a recent check confirming the plan is still active.
-        entitlement_checked_recently(entitlement) && entitlement_active(entitlement)
+        return true;
     }
 
     pub fn audio_engine_resolution(&self) -> AudioEngineResolution {
