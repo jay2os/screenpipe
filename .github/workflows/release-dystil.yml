@@ -29,12 +29,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-15
+          - platform: macos-26
             target: aarch64-apple-darwin
             tauri-args: "--target aarch64-apple-darwin --features metal,parakeet-mlx,rfdetr-mlx,redact-onnx-coreml,official-build"
             os_type: "macos"
             artifact_arch: "arm64"
-          - platform: macos-15
+          - platform: macos-26
             target: x86_64-apple-darwin
             tauri-args: "--target x86_64-apple-darwin --features metal,redact-onnx-coreml,official-build"
             os_type: "macos"
@@ -284,8 +284,8 @@ jobs:
         working-directory: apps/dystil
         shell: powershell
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CI: true
           CARGO_PROFILE_RELEASE_LTO: thin
@@ -305,7 +305,7 @@ jobs:
           GGML_AVX512_BF16: "OFF"
           CMAKE_ARGS: '-DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_AVX512_VBMI=OFF -DGGML_AVX512_VNNI=OFF -DGGML_AVX512_BF16=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2'
           OPENBLAS_PATH: ${{ github.workspace }}/apps/dystil/src-tauri/openblas
-        run: bunx tauri build --verbose --no-sign ${{ matrix.tauri-args }}
+        run: bunx tauri build --verbose ${{ matrix.tauri-args }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
