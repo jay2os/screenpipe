@@ -356,7 +356,9 @@ export default function OverlayPage() {
         <>
           <ChangelogDialog />
 
-          {!isEnterprise && <LoginDialog />}
+          {/* Wait for the enterprise-build probe to resolve so the login dialog
+              can't flash on the wrong branch during startup. */}
+          {isEnterprise === false && <LoginDialog />}
           <ModelDownloadTracker />
           <UpdateBanner />
           
