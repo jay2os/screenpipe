@@ -18,9 +18,8 @@
  * long chat can exceed the window. The extension now clamps any single
  * oversized message so compaction can always make progress.
  *
- * The e2e suite mocks pi (no real subprocess), so the extension can't run
- * there — these handler-level tests are the real coverage. They import the
- * SHIPPED extension file (via the @screenpipe-ext alias) and drive the actual
+ * These handler-level tests are the real coverage. They import the SHIPPED
+ * extension file (via the @screenpipe-ext alias) and drive the actual
  * registered handlers, so there's no risk of a ported copy drifting.
  */
 

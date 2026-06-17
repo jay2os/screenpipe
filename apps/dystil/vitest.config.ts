@@ -10,11 +10,8 @@ export default defineConfig({
 		setupFiles: ["./vitest.setup.ts"],
 		include: ["**/__tests__/**/*.test.{ts,tsx}", "**/*.test.{ts,tsx}"],
 		// `"node_modules"` only excludes the top-level dir, not nested ones.
-		// Without `**/node_modules/**` vitest crawled into
-		// `.e2e/pi-agent/node_modules/zod/**` and ran its bundled test
-		// suite, surfacing 7 unrelated "failures" we have no business
-		// running. `.e2e/` is the WebdriverIO suite (run via `test:e2e`,
-		// not vitest).
+		// Without `**/node_modules/**` vitest can crawl into nested package
+		// trees and run bundled test suites we do not own.
 		//
 		// The bun:test files (test runner is Bun-native, not vitest) are
 		// listed below — they import from `bun:test` which vitest can't
@@ -24,8 +21,6 @@ export default defineConfig({
 			"**/node_modules/**",
 			"**/.next/**",
 			"**/dist/**",
-			".e2e/**",
-			"e2e/**",
 			"src-tauri/target/**",
 			"lib/utils/redact-pii.test.ts",
 			"lib/utils/meeting-state.test.ts",

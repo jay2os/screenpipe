@@ -1984,7 +1984,7 @@ function SortablePresetCard({
                     <Share2 className="w-3 h-3" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>share to team (e2e encrypted)</TooltipContent>
+                <TooltipContent>share to team</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
@@ -2027,7 +2027,7 @@ export const AIPresets = () => {
   const sharePresetToTeam = async (preset: AIPreset) => {
     try {
       await team.pushConfig("ai_provider", preset.id, preset);
-      toast({ title: "shared to team", description: `"${formatPresetName(preset.id)}" is now available to all team members (e2e encrypted)` });
+      toast({ title: "shared to team", description: `"${formatPresetName(preset.id)}" is now available to all team members` });
     } catch (err: any) {
       toast({ title: "failed to share to team", description: err.message, variant: "destructive" });
     }

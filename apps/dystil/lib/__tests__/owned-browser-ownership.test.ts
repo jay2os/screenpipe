@@ -11,8 +11,8 @@
  * single `<BrowserSidebar>` revealed (and persisted) every navigation into
  * whatever chat was on screen. The fix tags each navigation with an owner and
  * the sidebar drops navigations owned by a different chat. This is the
- * deterministic counterpart to the integration test in
- * `e2e/specs/zz-owned-browser-background-nav.spec.ts`.
+ * deterministic counterpart to the integration test coverage for owned-browser
+ * navigation.
  */
 
 import { describe, it, expect } from "vitest";

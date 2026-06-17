@@ -615,7 +615,7 @@ fn copy_permission_flow_bundle() {
 
     // Missing source means swift-rs's SwiftPM build didn't emit the bundle
     // (CI cache layering, scratch-path mismatch, etc.). Release builds must
-    // ship the real bundle — hard-fail. Debug builds (e2e CI) only need the
+    // ship the real bundle — hard-fail. Debug builds only need the
     // path to exist so tauri-build's resource validation passes; same
     // empty-stub trick mlx.metallib uses above.
     if !bundle_src.exists() {

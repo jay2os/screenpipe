@@ -55,11 +55,6 @@ export const APP_ENTITLEMENT_MAX_STALE_MS = 72 * 60 * 60 * 1000;
 export const APP_ENTITLEMENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 export const PRICING_URL = screenpipeWebUrl("/onboarding", "https://screenpipe.com");
 
-// localStorage key an e2e spec can set to force the gate ON even in a bypassed
-// build. It can only ever make the gate stricter (never bypass), so it is safe
-// to honor in production too.
-export const E2E_FORCE_BILLING_GATE_KEY = "screenpipe_e2e_force_billing_gate";
-
 export function isDevBillingBypassEnabled() {
   if (process.env.NEXT_PUBLIC_SCREENPIPE_FORCE_BILLING_GATE === "true") {
     return false;

@@ -1011,7 +1011,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 	// network request is still in flight, loadUser refuses to write the user
 	// back. Without this, a slow refresh that started before the user clicked
 	// "logout" resurrects the just-cleared session — the user had to click
-	// logout twice. Regression test: e2e/specs/zz-logout-resurrect.spec.ts.
+	// logout twice. Regression test coverage lives in the auth tests.
 	const authGenerationRef = useRef(0);
 
 	useEffect(() => {

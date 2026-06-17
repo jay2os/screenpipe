@@ -42,7 +42,6 @@
     "node_modules",
     "src-tauri",
     "scripts",
-    "e2e",
     "vitest.config.ts",
     "vitest.setup.ts",
     "**/__tests__/**",

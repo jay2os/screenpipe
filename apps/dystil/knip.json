@@ -5,17 +5,13 @@
     "app/**/layout.tsx",
     "app/**/not-found.tsx",
     "app/**/error.tsx",
-    "e2e/specs/**/*.spec.ts",
-    "e2e/tests/**/*.js",
-    "e2e/helpers/**/*.ts",
     "scripts/**/*.js"
   ],
   "project": [
     "app/**/*.{ts,tsx}",
     "components/**/*.{ts,tsx}",
     "lib/**/*.{ts,tsx}",
-    "scripts/**/*.{ts,js}",
-    "e2e/**/*.{ts,js}"
+    "scripts/**/*.{ts,js}"
   ],
   "ignore": [
     "**/__tests__/**",
@@ -23,16 +19,10 @@
   ],
   "ignoreDependencies": [
     "ts-node",
-    "mocha",
-    "@wdio/cli",
-    "@wdio/local-runner",
-    "@wdio/globals"
+    "mocha"
   ],
   "next": true,
   "tailwind": true,
   "postcss": true,
-  "vitest": true,
-  "webdriver-io": {
-    "config": "e2e/wdio.conf.ts"
-  }
+  "vitest": true
 }
