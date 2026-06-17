@@ -940,7 +940,7 @@ function SedimentationLoader({
 // Pulls /search query params out of a curl-style bash command so the chat row
 // can show "Searched ChatGPT 'foo'" instead of the raw curl URL. Pi's pipes
 // emit these as plain bash tool calls (no MCP), with the app name encoded as
-// app_name=X in the query string — see crates/screenpipe-core/assets/pipes/.
+// app_name=X in the query string — see vendor/screenpipe/crates/screenpipe-core/assets/pipes/.
 function extractAppFromToolCall(toolCall: ToolCall): string | undefined {
   if (toolCall.toolName === "bash") {
     return classifyCurl(String(toolCall.args?.command ?? ""))?.appName;

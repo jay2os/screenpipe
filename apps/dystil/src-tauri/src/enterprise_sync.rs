@@ -4,8 +4,8 @@
 
 //! Desktop-side glue for enterprise telemetry sync.
 //!
-//! The actual sync state machine + tests live in `ee/desktop-rust/enterprise_sync.rs`
-//! (kept under `ee/` for clean license separation from the consumer build).
+//! The actual sync state machine + tests live in `vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs`
+//! (kept under `vendor/screenpipe/ee/` for clean license separation from the consumer build).
 //! This shim only:
 //!   - implements the `LocalApiClient` trait against the running screenpipe
 //!     HTTP server (localhost:{port}/search)
@@ -17,7 +17,7 @@
 //! builds compile this file as a no-op.
 
 #[cfg(feature = "enterprise-build")]
-#[path = "../../../../ee/desktop-rust/enterprise_sync.rs"]
+#[path = "../../../../vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs"]
 mod ee_sync;
 
 #[cfg(feature = "enterprise-build")]

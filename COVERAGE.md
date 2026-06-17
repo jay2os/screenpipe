@@ -11,8 +11,8 @@ results and `cargo llvm-cov` data on top when judging release confidence.
 
 ## Dashboards
 
-- E2E dashboard: [apps/screenpipe-app-tauri/e2e/COVERAGE.md](apps/screenpipe-app-tauri/e2e/COVERAGE.md)
-- Core engine dashboard: [coverage/CORE.md](coverage/CORE.md)
+- E2E dashboard: [vendor/screenpipe/apps/screenpipe-app-tauri/e2e/COVERAGE.md](vendor/screenpipe/apps/screenpipe-app-tauri/e2e/COVERAGE.md)
+- Core engine dashboard: [vendor/screenpipe/coverage/CORE.md](vendor/screenpipe/coverage/CORE.md)
 
 ## Current Snapshot
 
@@ -44,7 +44,7 @@ results and `cargo llvm-cov` data on top when judging release confidence.
 
 ## Refresh
 
-From `apps/screenpipe-app-tauri`:
+From `vendor/screenpipe/apps/screenpipe-app-tauri`:
 
 ```bash
 bun run coverage:all
@@ -52,4 +52,4 @@ bun run coverage:all:check
 ```
 
 For core line coverage, install/use `cargo llvm-cov` and feed its JSON
-summary into `coverage:core`; the core dashboard documents the exact command.
+summary into `coverage:core`; the vendored core dashboard documents the exact command.

@@ -12,8 +12,8 @@
 //!
 //! > Capturing from MacBook Pro Microphone — your AirPods (input) is offline.
 //!
-//! See `crates/screenpipe-audio/src/audio_manager/device_monitor.rs` for the
-//! state machine, and `crates/screenpipe-events/src/custom_events/audio_devices.rs`
+//! See `vendor/screenpipe/crates/screenpipe-audio/src/audio_manager/device_monitor.rs` for the
+//! state machine, and `vendor/screenpipe/crates/screenpipe-events/src/custom_events/audio_devices.rs`
 //! for the event payload shape.
 
 use serde_json::Value;

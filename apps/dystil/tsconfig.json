@@ -27,7 +27,7 @@
         "./*"
       ],
       "@ee/*": [
-        "../../ee/desktop/*"
+        "../../vendor/screenpipe/ee/desktop/*"
       ]
     },
     "types": ["@tauri-apps/api"]

@@ -125,19 +125,19 @@ async-trait = "0.1"
 hostname = "0.4"
 
 # Screenpipe core (for sync)
-screenpipe-core = { path = "../../../crates/screenpipe-core", features = ["cloud-sync", "secrets"] }
+screenpipe-core = { path = "../../../vendor/screenpipe/crates/screenpipe-core", features = ["cloud-sync", "secrets"] }
 
 # Embedded screenpipe server
-screenpipe-config = { path = "../../../crates/screenpipe-config", features = ["specta"] }
-screenpipe-engine = { path = "../../../crates/screenpipe-engine", default-features = false }
-screenpipe-screen = { path = "../../../crates/screenpipe-screen" }
-screenpipe-a11y = { path = "../../../crates/screenpipe-a11y" }
-screenpipe-audio = { path = "../../../crates/screenpipe-audio" }
-screenpipe-db = { path = "../../../crates/screenpipe-db" }
-screenpipe-vault = { path = "../../../crates/screenpipe-vault" }
-screenpipe-connect = { path = "../../../crates/screenpipe-connect", features = ["specta"] }
-screenpipe-secrets = { path = "../../../crates/screenpipe-secrets" }
-screenpipe-events = { path = "../../../crates/screenpipe-events" }
+screenpipe-config = { path = "../../../vendor/screenpipe/crates/screenpipe-config", features = ["specta"] }
+screenpipe-engine = { path = "../../../vendor/screenpipe/crates/screenpipe-engine", default-features = false }
+screenpipe-screen = { path = "../../../vendor/screenpipe/crates/screenpipe-screen" }
+screenpipe-a11y = { path = "../../../vendor/screenpipe/crates/screenpipe-a11y" }
+screenpipe-audio = { path = "../../../vendor/screenpipe/crates/screenpipe-audio" }
+screenpipe-db = { path = "../../../vendor/screenpipe/crates/screenpipe-db" }
+screenpipe-vault = { path = "../../../vendor/screenpipe/crates/screenpipe-vault" }
+screenpipe-connect = { path = "../../../vendor/screenpipe/crates/screenpipe-connect", features = ["specta"] }
+screenpipe-secrets = { path = "../../../vendor/screenpipe/crates/screenpipe-secrets" }
+screenpipe-events = { path = "../../../vendor/screenpipe/crates/screenpipe-events" }
 eventkit-rs = { git = "https://github.com/divanshu-go/eventkit-rs", rev = "9dd52787c8435d734ed443e2d5641f45b0177cae", default-features = false, features = ["events"] }
 # Async PII reconciliation (issue #3185 / PR #3188). `onnx-coreml` is
 # the right execution-provider for Apple Silicon (image PII via
@@ -146,11 +146,11 @@ eventkit-rs = { git = "https://github.com/divanshu-go/eventkit-rs", rev = "9dd52
 # every transcript through the Tinfoil enclave. Windows builds should
 # switch onnx-coreml → onnx-directml via a build-target override. No
 # CUDA / Vulkan / GPU-vendor SDKs bundled.
-screenpipe-redact = { path = "../../../crates/screenpipe-redact", features = ["onnx-coreml", "opf-text"] }
+screenpipe-redact = { path = "../../../vendor/screenpipe/crates/screenpipe-redact", features = ["onnx-coreml", "opf-text"] }
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls"] }
 image = "0.25.5"
 
-# Used only by the path-included `ee/desktop-rust/enterprise_sync.rs`. Gated
+# Used only by the path-included `vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs`. Gated
 # behind enterprise-build via the `dep:thiserror` syntax in [features] so
 # cargo-machete (which doesn't follow `#[path = ...]` imports) doesn't flag
 # this as unused. Stays cross-platform — the EE sync compiles on Windows
@@ -158,10 +158,10 @@ image = "0.25.5"
 thiserror = { version = "1.0", optional = true }
 
 # Generic sync primitives (destination trait + ticketed pipeline + body
-# encryption). Used by `ee/desktop-rust/enterprise_upload.rs` for the
+# encryption). Used by `vendor/screenpipe/ee/desktop-rust/enterprise_upload.rs` for the
 # direct-upload path. Gated behind enterprise-build for the same reason
 # as thiserror — `#[path = ...]` imports aren't followed by cargo-machete.
-screenpipe-sync = { path = "../../../crates/screenpipe-sync", optional = true }
+screenpipe-sync = { path = "../../../vendor/screenpipe/crates/screenpipe-sync", optional = true }
 
 # jemalloc — aggressively returns freed pages to OS, reducing RSS bloat
 [target.'cfg(not(target_os = "windows"))'.dependencies]
@@ -259,7 +259,7 @@ official-build = []
 # tauri.enterprise
 # bundle identifier, and the periodic telemetry sync that pushes screen + audio
 # activity to the screenpipe enterprise ingest endpoint scoped by license key.
-# Source for the sync lives under `ee/desktop-rust/enterprise_sync.rs` (EE-licensed).
+# Source for the sync lives under `vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs` (EE-licensed).
 # Consumer builds never compile this code.
 # Do NOT add official-build here — enterprise has its own policy-gated updater.
 enterprise-build = ["dep:thiserror", "dep:screenpipe-sync"]
@@ -289,7 +289,7 @@ jemalloc = ["tikv-jemallocator"]
 
 
 [dev-dependencies]
-# Used by ee/desktop-rust/enterprise_sync.rs tests (compiled in only when the
+# Used by vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs tests (compiled in only when the
 # enterprise-build feature is on).
 tempfile = "3"
 wiremock = "0.6"
@@ -300,7 +300,7 @@ serial_test = "3"
 # screenpipe-redact: workspace dep added for async PII reconciliation (PR #3188);
 # wiring lands in a follow-up. Cargo compiles it for the workspace either way.
 # thiserror: gated behind `enterprise-build` via `dep:thiserror`; cargo-machete
-# can't follow `#[path = ...]` imports into ee/desktop-rust/enterprise_sync.rs.
+# can't follow `#[path = ...]` imports into vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs.
 # eventkit-rs: lib crate is imported as `eventkit` (calendar.rs, permissions.rs);
 # cargo-machete matches the package name `eventkit_rs` so it can't see the use.
 ignored = ["tauri-utils", "screenpipe-redact", "thiserror", "screenpipe-sync", "eventkit-rs"]

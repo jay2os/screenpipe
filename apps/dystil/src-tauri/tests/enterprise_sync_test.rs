@@ -5,7 +5,7 @@
 //! Integration test wrapper for the EE enterprise sync module.
 //!
 //! The unit + mock-server tests live inside the EE source file itself
-//! (`ee/desktop-rust/enterprise_sync.rs`'s `#[cfg(test)] mod tests`). This
+//! (`vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs`'s `#[cfg(test)] mod tests`). This
 //! integration test file's only job is to provide a compile target that
 //! pulls that module in via `#[path]` so the embedded tests run as part of
 //! `cargo test --features enterprise-build --test enterprise_sync_test`.
@@ -18,7 +18,7 @@
 
 #![cfg(feature = "enterprise-build")]
 
-#[path = "../../../../ee/desktop-rust/enterprise_sync.rs"]
+#[path = "../../../../vendor/screenpipe/ee/desktop-rust/enterprise_sync.rs"]
 mod ee_sync;
 
 // Re-export so type names appear under one module path in test output.

@@ -4,7 +4,7 @@
 
 /**
  * Tests for the pi context-pruning extension
- * (crates/screenpipe-core/assets/extensions/context-pruning.ts).
+ * (vendor/screenpipe/crates/screenpipe-core/assets/extensions/context-pruning.ts).
  *
  * This extension is loaded into every pi chat + pipe session and runs in pi's
  * `context` hook (the `transformContext` slot) before each LLM call. It is the

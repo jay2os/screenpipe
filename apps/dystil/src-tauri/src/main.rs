@@ -366,7 +366,7 @@ async fn main() {
     //   2. SCREENPIPE_IGNORE_DB_LOCK=1 env var — bypass on this launch only
     //   3. `rm ~/.screenpipe/.db_recovery.lock` — manual
     //
-    // See `crates/screenpipe-engine/src/cli/db.rs`.
+    // See `vendor/screenpipe/crates/screenpipe-engine/src/cli/db.rs`.
     if std::env::var("SCREENPIPE_IGNORE_DB_LOCK").ok().as_deref() != Some("1") {
         let lock_path =
             screenpipe_core::paths::default_screenpipe_data_dir().join(".db_recovery.lock");

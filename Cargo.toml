@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "crates/*",
+    "vendor/screenpipe/crates/*",
 ]
 exclude = [
-    "apps/screenpipe-app-tauri/src-tauri",
-    "crates/screenpipe-integrations",
-    "ee/sdk",
+    "vendor/screenpipe/apps/screenpipe-app-tauri/src-tauri",
+    "vendor/screenpipe/crates/screenpipe-rfdetr-mlx",
+    "vendor/screenpipe/ee/sdk",
 ]
 resolver = "2"
 
