@@ -15,8 +15,6 @@ import {
 } from "@tauri-apps/plugin-fs";
 import type {
   ChatConversation,
-  ConversationKind,
-  PipeContext,
 } from "@/lib/hooks/use-settings";
 import { deleteCachedBrowserState } from "@/lib/browser-state-cache";
 import {
@@ -54,8 +52,6 @@ export interface ConversationListOptions {
   /** Only return hidden rows (for the archived tab). Storage-level filter so
    *  pagination offsets line up — post-filtering in JS would skew the page size. */
   hiddenOnly?: boolean;
-  /** Restrict results to one conversation surface. Undefined means all kinds. */
-  kind?: ConversationKind | "all";
 }
 
 async function getChatsDir(): Promise<string> {
@@ -73,9 +69,6 @@ export async function ensureChatsDir(): Promise<string> {
   return dir;
 }
 
-// Pipe-run session ids are `pipe:<name>:<execId>`. The colons are illegal on
-// NTFS (reserved for alternate data streams), so saves silently fail on
-// Windows. Same set as Win32's invalid-filename chars; safe no-op for UUIDs.
 function conversationFilename(id: string): string {
   return `${id.replace(/[<>:"/\\|?*]/g, "_")}.json`;
 }
@@ -179,19 +172,13 @@ export interface ConversationMeta {
    *  sidebar sort order. Falls back to derive-from-messages on legacy
    *  files that pre-date the field. */
   lastUserMessageAt?: number;
-  /** Conversation kind — `chat` for chats, `pipe-watch` / `pipe-run` for
-   *  pipe sessions. Sidebar uses this to split rows into separate
-   *  sections. Older files default to `chat`. */
-  kind: ConversationKind;
-  /** Pipe metadata for `pipe-*` kinds. Undefined for plain chats. */
-  pipeContext?: PipeContext;
   /** Title source priority: user > ai > fallback. */
   titleSource?: "user" | "ai" | "fallback";
   /** Normalized first user message — the cross-window duplicate key. Carried
    *  onto the in-memory SessionRecord so the live sidebar/switcher can dedup
    *  metadata-only rows (a cross-window twin synced via
    *  `chat-conversation-saved`) the same way `dedupeConversationMetas` does
-   *  on disk. Undefined for pipe runs / chats with no user message yet. */
+   *  on disk. Undefined when there is no user message yet. */
   dedupKey?: string;
 }
 
@@ -299,8 +286,6 @@ export function conversationMetaFromJson(conv: any): ConversationMeta | null {
     pinned: conv.pinned === true,
     hidden: conv.hidden === true,
     lastUserMessageAt,
-    kind: conv.kind ?? "chat",
-    pipeContext: conv.pipeContext,
     titleSource: conv.titleSource,
     dedupKey: conversationDedupKey(conv) ?? undefined,
   };
@@ -312,9 +297,6 @@ function matchesConversationOptions(
 ): boolean {
   if (options.hiddenOnly === true && !meta.hidden) return false;
   if (options.hiddenOnly !== true && options.includeHidden === false && meta.hidden) {
-    return false;
-  }
-  if (options.kind && options.kind !== "all" && meta.kind !== options.kind) {
     return false;
   }
   return true;
@@ -342,14 +324,14 @@ function normalizeLimit(limit: number | undefined): number | undefined {
 // user sees a single row. We key on the normalized first user message and
 // only merge chats created within a short window of each other, so two
 // genuinely distinct chats that happen to share an opener — and templated
-// pipe runs, which legitimately repeat the same first message every run —
+// repeated automated runs, which legitimately reuse the same opener —
 // are never merged.
 // ---------------------------------------------------------------------------
 
 export interface ConversationDedupCandidate {
   meta: ConversationMeta;
   /** Normalized first user message. `null` exempts the row from dedup
-   *  (pipe runs, or chats with no user message yet). */
+   *  (rows with no user message yet). */
   key: string | null;
   /** True when at least one assistant message carries real content (not just
    *  the transient "Processing…" placeholder). Lets us keep the finished copy

@@ -176,12 +176,6 @@ export async function handlePiEvent(envelope: AgentEventEnvelope) {
   if (!sid || !inner) return; // events without a session id or body can't be routed
   // Internal Pi sessions (title generation, etc.) — never routed to chat store
   if (isInternalTitleSession(sid)) return;
-  // Pipe sessions are only routed when chat-store already has a record
-  // for them — i.e. the user clicked into a pipe-watch view, which
-  // upserted the session. Unwatched pipes go to the pipe-run-recorder
-  // (a separate default handler) and never reach the chat-store. Without
-  // this gate, every running pipe would lazy-create a "new chat" row
-  // in the sidebar via the upsert path below.
   if (envelope.source !== "pi") {
     const existing = useChatStore.getState().sessions[sid];
     if (!existing) return;
@@ -202,15 +196,7 @@ export async function handlePiEvent(envelope: AgentEventEnvelope) {
   // panel either reads the store directly or syncs its local state from
   // the store on session switch.
   //
-  // Pipe-watch sessions are written by `pipe-watch-writer` instead —
-  // pipe streams don't follow chat-shaped lifecycles (missing
-  // message_start between turns, terminal `agent_end` carrying the
-  // canonical messages array), and double-writing here would race
-  // against that writer. Status mirroring (the sidebar dot / preview)
-  // still happens below for both kinds.
-  if (existing?.kind !== "pipe-watch") {
-    applyEventToSessionContent(sid, inner);
-  }
+  applyEventToSessionContent(sid, inner);
 
   // Lazy-create on first event from a previously-unknown session id.
   // Handles the case where Pi was started outside the chat-storage flow
@@ -227,8 +213,8 @@ export async function handlePiEvent(envelope: AgentEventEnvelope) {
       updatedAt: Date.now(),
       pinned: false,
       // First-touch session is unread unless the user is already viewing
-      // it (this is also how external triggers — chat-prefill, pipe
-      // events — surface in the sidebar).
+      // it (this is also how external triggers — chat-prefill and other
+      // background events — surface in the sidebar).
       unread: store.currentId !== sid,
     });
     if (snippet) previewLastEmittedAt.set(sid, Date.now());
@@ -719,11 +705,6 @@ async function persistBackgroundSession(sid: string): Promise<void> {
       const messages = (session.messages as MutableMessage[] | undefined) ?? [];
       if (messages.length === 0) return;
 
-      // Skip pure pipe-watch sessions (transient, rendered live from
-      // pipe_event — never the user's "real" chat history).
-      const allPipe = messages.every((m: any) => m?.id?.startsWith("pipe-"));
-      if (allPipe) return;
-
       // Respect the user's "history disabled" toggle.
       try {
         const { getStore } = await import("@/lib/hooks/use-settings");
@@ -806,12 +787,6 @@ async function persistBackgroundSession(sid: string): Promise<void> {
         updatedAt: Date.now(),
         pinned: existing?.pinned ?? session.pinned,
         hidden: existing?.hidden ?? false,
-        // Preserve kind / pipe metadata so a pipe-run conversation
-        // doesn't silently demote to "chat" on its first router-side
-        // save. Existing chats default to no `kind` field on disk
-        // (back-compat).
-        ...(session.kind ? { kind: session.kind } : existing?.kind ? { kind: existing.kind } : {}),
-        ...(session.pipeContext ? { pipeContext: session.pipeContext } : existing?.pipeContext ? { pipeContext: existing.pipeContext } : {}),
         ...(browserState ? { browserState } : {}),
       };
 

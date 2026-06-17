@@ -160,22 +160,13 @@ describe("chat-store: stable sort by createdAt", () => {
     expect(ordered.map((s) => s.id)).toEqual(["older", "newer"]);
   });
 
-  it("user-touched chats outrank pipe completions even with older lastUserMessageAt", () => {
-    // Bug: pipe-watch / pipe-run sessions are upserted with
-    // createdAt: Date.now() when they spawn. After they finish they
-    // appear in Recents. Their `createdAt` is more recent than a
-    // user's last user-send timestamp from a few minutes earlier, so
-    // pipes were burying the chat the user just typed in.
-    // Tiered sort fixes this: rows with `lastUserMessageAt` set
-    // always rank above rows without one.
+  it("user-touched chats outrank untouched rows even with older createdAt", () => {
     useChatStore.getState().actions.upsert(
       baseRecord({ id: "user-chat", createdAt: 100, lastUserMessageAt: 1_000 }),
     );
-    useChatStore.getState().actions.upsert(
-      baseRecord({ id: "pipe-completion", kind: "pipe-watch", createdAt: 9_000 }),
-    );
+    useChatStore.getState().actions.upsert(baseRecord({ id: "fresh-row", createdAt: 9_000 }));
     const ordered = selectOrderedSessions(useChatStore.getState());
-    expect(ordered.map((s) => s.id)).toEqual(["user-chat", "pipe-completion"]);
+    expect(ordered.map((s) => s.id)).toEqual(["user-chat", "fresh-row"]);
   });
 
   it("pinned rows float above unpinned, both sorted by createdAt within group", () => {
@@ -307,19 +298,15 @@ describe("chat-store: recent switcher ordering", () => {
     expect(ordered.map((s) => s.id)).toEqual(["visible"]);
   });
 
-  it("excludes pipe-run and pipe-watch sessions from the switcher", () => {
+  it("orders recent switcher rows by lastViewedAt", () => {
     useChatStore.getState().actions.upsert(baseRecord({ id: "visible", createdAt: 300 }));
-    useChatStore.getState().actions.upsert(
-      baseRecord({ id: "pipe-run", kind: "pipe-run", createdAt: 200, lastViewedAt: 500 })
-    );
-    useChatStore.getState().actions.upsert(
-      baseRecord({ id: "pipe-watch", kind: "pipe-watch", createdAt: 100, lastViewedAt: 400 })
-    );
+    useChatStore.getState().actions.upsert(baseRecord({ id: "older", createdAt: 200, lastViewedAt: 500 }));
+    useChatStore.getState().actions.upsert(baseRecord({ id: "oldest", createdAt: 100, lastViewedAt: 400 }));
 
     useChatStore.getState().actions.setCurrent("visible");
 
     const ordered = selectRecentSwitcherSessions(useChatStore.getState());
-    expect(ordered.map((s) => s.id)).toEqual(["visible"]);
+    expect(ordered.map((s) => s.id)).toEqual(["visible", "older", "oldest"]);
   });
 });
 
@@ -444,16 +431,6 @@ describe("chat-store: cross-window duplicate row collapsing", () => {
     );
     useChatStore.getState().actions.upsert(
       withMessages("b", "good morning", "y", { createdAt: 1_000 + 31 * 60 * 1_000 }),
-    );
-    expect(selectOrderedSessions(useChatStore.getState())).toHaveLength(2);
-  });
-
-  it("never merges pipe runs that share a templated first message", () => {
-    useChatStore.getState().actions.upsert(
-      withMessages("run1", "daily digest", "a", { createdAt: 1_000, kind: "pipe-run" }),
-    );
-    useChatStore.getState().actions.upsert(
-      withMessages("run2", "daily digest", "b", { createdAt: 1_100, kind: "pipe-run" }),
     );
     expect(selectOrderedSessions(useChatStore.getState())).toHaveLength(2);
   });

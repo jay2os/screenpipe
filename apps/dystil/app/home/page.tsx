@@ -36,12 +36,9 @@ import {
 } from "@/components/chat-sidebar";
 import { ChatHistoryView } from "@/components/chat/chat-history-view";
 import { mountPiEventRouter } from "@/lib/stores/pi-event-router";
-import { mountPipeRunRecorder } from "@/lib/events/pipe-run-recorder";
-import { mountPipeWatchWriter } from "@/lib/events/pipe-watch-writer";
 import { useQueryState } from "nuqs";
 import { listen } from "@tauri-apps/api/event";
 import { useSettings } from "@/lib/hooks/use-settings";
-import { useRunningPipes } from "@/lib/hooks/use-running-pipes";
 import { commands } from "@/lib/utils/tauri";
 import { shouldAcceptTitleSource } from "@/lib/utils/chat-title";
 import {
@@ -52,10 +49,7 @@ import {
 import { useTeam } from "@/lib/hooks/use-team";
 import { useEnterprisePolicy } from "@/lib/hooks/use-enterprise-policy";
 import { EnterpriseLicensePrompt } from "@/components/enterprise-license-prompt";
-import { PipeActivityIndicator } from "@/components/pipe-activity-indicator";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
-import { computeMeetingActive, type MeetingStatusResponse } from "@/lib/utils/meeting-state";
-import type { MeetingRecord } from "@/lib/utils/meeting-format";
 import { useRouter } from "next/navigation";
 import { appendAuthToken, ensureApiReady, getApiBaseUrl, localFetch } from "@/lib/api";
 import {
@@ -103,8 +97,6 @@ function HomeContent() {
   const { isTranslucent } = useSidebarContext();
   const teamState = useTeam();
   const { isSectionHidden, isSettingLocked, needsLicenseKey, submitLicenseKey } = useEnterprisePolicy();
-  const runningPipes = useRunningPipes();
-  const runningPipeCount = runningPipes.length;
   const selectChatConversation = useCallback((id: string) => {
     setActiveSection("home");
     useChatStore.getState().actions.setCurrent(id);
@@ -158,16 +150,6 @@ function HomeContent() {
   // freeze the moment the chat unmounts. Idempotent.
   useEffect(() => {
     void mountPiEventRouter();
-    // Pipe-run recorder — buffers pipe-source events on the agent-event
-    // bus and saves each completed run as a `kind: "pipe-run"` chat
-    // file. Pairs with the chat router; both run for the lifetime of
-    // the app process. Idempotent.
-    void mountPipeRunRecorder();
-    // Pipe-watch writer — sole authority on chat-store messages for
-    // sessions with kind="pipe-watch". The chat panel mirrors the
-    // store; this writer is what makes "switch away and back" preserve
-    // the full live transcript. Idempotent.
-    void mountPipeWatchWriter();
   }, []);
 
   // Overlay-side foreground sessions don't pass through this window's
@@ -376,37 +358,6 @@ function HomeContent() {
     });
   }, []);
 
-  // Ephemeral collapse for focused workflows (e.g. taking notes during
-  // a meeting). Captures the user's prior sidebar state on enter and
-  // restores it on exit — never persisted to localStorage.
-  //
-  // Stable identity (no deps) so this callback doesn't re-fire the
-  // child's notify-effect every time `sidebarCollapsed` flips. The prior
-  // version had `[sidebarCollapsed]` in its deps, which meant: user
-  // hits Cmd+B in focused-meeting mode → setSidebarCollapsed(false) →
-  // callback recreated → child's "notify on selectedId/onFocusModeChange"
-  // effect re-ran with selectedId still set → setSidebarCollapsed(true).
-  // Net effect: the sidebar slammed shut every time the user tried to
-  // open it during a meeting.
-  const sidebarPrevCollapsedRef = useRef<boolean | null>(null);
-  const sidebarCollapsedRef = useRef(sidebarCollapsed);
-  useEffect(() => { sidebarCollapsedRef.current = sidebarCollapsed; }, [sidebarCollapsed]);
-  const handleMeetingFocusModeChange = useCallback(
-    (focused: boolean) => {
-      if (focused) {
-        if (sidebarPrevCollapsedRef.current === null) {
-          sidebarPrevCollapsedRef.current = sidebarCollapsedRef.current;
-        }
-        setSidebarCollapsed(true);
-      } else if (sidebarPrevCollapsedRef.current !== null) {
-        const prev = sidebarPrevCollapsedRef.current;
-        sidebarPrevCollapsedRef.current = null;
-        setSidebarCollapsed(prev);
-      }
-    },
-    [],
-  );
-
   // Cmd+B / Ctrl+B to toggle sidebar
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -538,190 +489,6 @@ function HomeContent() {
     const interval = setInterval(fetchDevices, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [settings.monitorIds, settings.useAllMonitors]);
-
-  // Active meeting state — lights up the phone icon for ANY active meeting
-  // (manual OR auto-detected: Teams, Zoom, etc.).
-  const [meetingState, setMeetingState] = useState<MeetingStatusResponse & {
-    manualActive: boolean;
-  }>({
-    active: false,
-    manualActive: false,
-    activeMeetingId: null,
-    stoppableMeetingId: null,
-    meetingApp: null,
-    detectionSource: null,
-  });
-  const [meetingLoading, setMeetingLoading] = useState(false);
-
-  // Timestamp when user clicked start, used for a 10s grace period so a
-  // stale poll can't clear local state before the server persists the row.
-  const manualMeetingStartedAt = useRef<number>(0);
-  useEffect(() => {
-    let cancelled = false;
-    let ws: WebSocket | null = null;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let backoffMs = 1000;
-
-    const connect = () => {
-      void (async () => {
-        try {
-          await ensureApiReady();
-          if (cancelled) return;
-          const wsBase = getApiBaseUrl().replace("http://", "ws://");
-          ws = new WebSocket(appendAuthToken(`${wsBase}/ws/meeting-status`));
-          ws.onopen = () => {
-            backoffMs = 1000;
-          };
-          ws.onmessage = (event) => {
-            try {
-              const parsed = JSON.parse(event.data) as MeetingStatusResponse;
-              if (cancelled) return;
-              setMeetingState(
-                computeMeetingActive(parsed, manualMeetingStartedAt.current),
-              );
-            } catch {
-              // ignore malformed event payloads
-            }
-          };
-          ws.onclose = (event) => {
-            if (cancelled || event.code === 1000) return;
-            retry = setTimeout(connect, backoffMs);
-            backoffMs = Math.min(backoffMs * 2, 10000);
-          };
-          ws.onerror = () => {
-            ws?.close();
-          };
-        } catch {
-          if (cancelled) return;
-          retry = setTimeout(connect, backoffMs);
-          backoffMs = Math.min(backoffMs * 2, 10000);
-        }
-      })();
-    };
-
-    connect();
-    return () => {
-      cancelled = true;
-      if (retry) clearTimeout(retry);
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close(1000, "unmount");
-      }
-    };
-  }, []);
-
-  const toggleMeeting = useCallback(async (seed?: { title?: string; attendees?: string; resumeMeetingId?: number }) => {
-    setMeetingLoading(true);
-    try {
-      if (meetingState.active) {
-        // Stop the currently active meeting, whether manual or auto-detected.
-        const targetId = meetingState.stoppableMeetingId;
-        const res = await localFetch("/meetings/stop", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: targetId,
-            append_typed_text: settings.appendTypedTextToMeetingNote ?? true,
-          }),
-        });
-        if (res.ok) {
-          const meeting: MeetingRecord = await res.json();
-          manualMeetingStartedAt.current = 0;
-          setMeetingState({
-            active: false,
-            manualActive: false,
-            activeMeetingId: null,
-            stoppableMeetingId: null,
-            meetingApp: null,
-            detectionSource: null,
-          });
-          return meeting;
-        }
-        const bodyText = await res.text().catch(() => "");
-        throw new Error(
-          `stop meeting failed: HTTP ${res.status}${bodyText ? ` — ${bodyText}` : ""}`,
-        );
-      } else {
-        // No meeting active — start a manual one (optionally seeded from a
-        // calendar event when the caller has it), or resume an existing note.
-        const body: Record<string, string | number> = { app: "manual" };
-        if (seed?.resumeMeetingId) body.id = seed.resumeMeetingId;
-        if (seed?.title) body.title = seed.title;
-        if (seed?.attendees) body.attendees = seed.attendees;
-        const res = await localFetch("/meetings/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (res.ok) {
-          const meeting: MeetingRecord = await res.json();
-          manualMeetingStartedAt.current = Date.now();
-          setMeetingState({
-            active: true,
-            manualActive: true,
-            activeMeetingId: meeting.id,
-            stoppableMeetingId: meeting.id,
-            meetingApp: meeting.meeting_app,
-            detectionSource: meeting.detection_source,
-          });
-          return meeting;
-        }
-        const bodyText = await res.text().catch(() => "");
-        throw new Error(
-          `start meeting failed: HTTP ${res.status}${bodyText ? ` — ${bodyText}` : ""}`,
-        );
-      }
-    } catch (e) {
-      console.error("meeting toggle failed:", e);
-      throw e;
-    } finally {
-      setMeetingLoading(false);
-    }
-  }, [meetingState, settings.appendTypedTextToMeetingNote]);
-
-  // Native overlay already toggles the meeting in Rust. Refresh local state
-  // here instead of toggling again, otherwise one click can create or stop
-  // two meetings depending on which UI surfaces are mounted.
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    listen<MeetingStatusResponse>("native-shortcut-toggle-meeting", (event) => {
-      const payload = event.payload;
-      if (typeof payload?.active === "boolean") {
-        if (payload.active) {
-          manualMeetingStartedAt.current = Date.now();
-        } else {
-          manualMeetingStartedAt.current = 0;
-        }
-        setMeetingState({
-          active: payload.active,
-          manualActive: payload.manualActive ?? false,
-          activeMeetingId: payload.activeMeetingId ?? null,
-          stoppableMeetingId: payload.stoppableMeetingId ?? payload.activeMeetingId ?? null,
-          meetingApp: payload.meetingApp ?? null,
-          detectionSource: payload.detectionSource ?? null,
-        });
-        return;
-      }
-      void (async () => {
-        try {
-          const res = await localFetch("/meetings/status");
-          const status = res.ok ? await res.json() as MeetingStatusResponse : null;
-          setMeetingState(computeMeetingActive(status, manualMeetingStartedAt.current));
-        } catch {
-          // ignore sync failures; websocket remains source of truth
-        }
-      })();
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, []);
-
-  // Watch pipe: navigate to chat when user clicks "watch" on a running pipe
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    listen<{ pipeName: string; executionId: number }>("watch_pipe", () => {
-      setActiveSection("home");
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, [setActiveSection]);
 
   const openSettings = useCallback((section: string = "general") => {
     router.push(`/settings?section=${section}`);
@@ -968,16 +735,7 @@ function HomeContent() {
                       )}>
                         {section.icon}
                       </div>
-                      {!sidebarCollapsed && <span className={cn("text-xs truncate", section.id === "pipes" && runningPipeCount > 0 && "flex-1", isActive && isTranslucent ? "font-semibold vibrant-sidebar-fg" : "font-medium")}>{section.label}</span>}
-                      {section.id === "pipes" && runningPipeCount > 0 && !sidebarCollapsed && (
-                        <PipeActivityIndicator
-                          kind="running"
-                          label={runningPipeCount}
-                          className="ml-auto shrink-0"
-                          labelClassName="text-muted-foreground/60"
-                          ariaLabel={`${runningPipeCount} running pipe${runningPipeCount === 1 ? "" : "s"}`}
-                        />
-                      )}
+                      {!sidebarCollapsed && <span className={cn("text-xs truncate", isActive && isTranslucent ? "font-semibold vibrant-sidebar-fg" : "font-medium")}>{section.label}</span>}
                     </button>
                   );
                   if (sidebarCollapsed) {

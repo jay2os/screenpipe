@@ -12,18 +12,14 @@ import {
   onTerminated as onAgentTerminated,
   onEvicted as onAgentEvicted,
 } from "@/lib/events/bus";
-import { pipeSessionId } from "@/lib/events/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useSettings, ChatMessage, ChatConversation } from "@/lib/hooks/use-settings";
 import { cn } from "@/lib/utils";
-import { Loader2, Send, Square, Settings, ExternalLink, X, ImageIcon, History, Search, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Copy, Check, Clock, Calendar, Paperclip, Filter, RefreshCw, GitBranch, MoreHorizontal, Pencil, Pin, Sparkles, Plug, CornerDownRight } from "lucide-react";
-import { SchedulePromptDialog } from "@/components/chat/schedule-prompt-dialog";
-import { PipeContextBanner } from "@/components/chat/pipe-context-banner";
+import { Loader2, Send, Square, Settings, ExternalLink, X, ImageIcon, History, Search, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Copy, Check, Clock, Paperclip, Filter, RefreshCw, GitBranch, MoreHorizontal, Pencil, Pin, Sparkles, CornerDownRight } from "lucide-react";
 import { SourceCitationFooter } from "@/components/chat/source-citation-footer";
 import { BrowserSidebar } from "@/components/browser-sidebar";
-import { PipeAIIconLarge } from "@/components/pipe-ai-icon";
 import { MarkdownBlock } from "@/components/chat/markdown-block";
 import { toast } from "@/components/ui/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
@@ -63,7 +59,6 @@ import { useChatStore } from "@/lib/stores/chat-store";
 import { useFeedbackStore } from "@/lib/stores/feedback-store";
 import { statusForEvent } from "@/lib/stores/pi-event-router";
 import { deriveFallbackConversationTitle } from "@/lib/utils/chat-title";
-import { buildChipModelContent, buildChipDisplayContent, parseConnectionChip } from "@/lib/utils/connection-chip";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { usePlatform } from "@/lib/hooks/use-platform";
@@ -85,8 +80,6 @@ import {
   shouldHandleChatPrefillForWindow,
 } from "@/lib/chat-utils";
 import { useAutoSuggestions, type Suggestion } from "@/lib/hooks/use-auto-suggestions";
-import { SummaryCards, type ConnectionSetupSuggestion } from "@/components/chat/summary-cards";
-import { type CustomTemplate } from "@/lib/summary-templates";
 import {
   buildDailyLimitMessage,
   classifyQuotaError,
@@ -94,7 +87,7 @@ import {
   parseRateLimitWaitSeconds,
   PI_MAX_RATE_LIMIT_RETRIES,
 } from "@/lib/chat/quota-errors";
-import { buildSystemPrompt, buildConnectionsContext } from "@/lib/chat/system-prompt";
+import { buildSystemPrompt } from "@/lib/chat/system-prompt";
 import {
   classifyCurl,
   endpointFamily,
@@ -110,9 +103,7 @@ import {
   firstExternalWebTarget,
   type WebTargetPresentation,
 } from "@/lib/chat/tool-presentation";
-import { usePipes } from "@/lib/hooks/use-pipes";
 import { localFetch, getApiBaseUrl } from "@/lib/api";
-import { CONNECTIONS_UPDATED_EVENT } from "@/lib/connections-events";
 import {
   computeChatCitationPlan,
   formatSourceCitationsMarkdown,
@@ -120,7 +111,6 @@ import {
   type SourceCitation,
 } from "@/lib/source-citations";
 import { getFaviconUrl } from "@/components/rewind/favicon-utils";
-import { IntegrationIcon, INTEGRATION_ICON_KEYS } from "@/components/settings/connections-section";
 import {
   formatSteerShortcut,
   getComposerPrimaryAction,
@@ -176,386 +166,6 @@ const LARGE_CONTEXT_PROMPT_TAG = "screenpipe-large-context";
 const PASTED_TEXT_ATTACHMENT_CHAR_THRESHOLD = 8_000;
 const PASTED_TEXT_SHOW_IN_FIELD_MAX_CHARS = 20_000;
 const PASTED_TEXT_DOC_BASE_NAME = "Pasted text";
-
-type ConnectedIntegration = {
-  id: string;
-  name: string;
-  icon?: string;
-  category?: string;
-  description?: string;
-};
-
-type ConnectionListItem = ConnectedIntegration & { connected: boolean };
-type ActivityAppItem = { name: string; count: number; app_name?: string };
-function normalizeConnectionForPlatform<T extends ConnectedIntegration>(connection: T, isWindows: boolean): T {
-  if (isWindows && connection.id === "apple-calendar") {
-    return {
-      ...connection,
-      name: "Windows Calendar",
-      icon: "windows-calendar",
-    };
-  }
-  return connection;
-}
-
-function connectionMentionTag(connection: ConnectedIntegration, isWindows: boolean) {
-  if (isWindows && connection.id === "apple-calendar") return "@windows-calendar";
-  return `@${connection.id}`;
-}
-
-type PreviewCalendarEvent = {
-  title?: string;
-  start?: string;
-  attendees?: string[];
-  isAllDay?: boolean;
-  is_all_day?: boolean;
-};
-
-const CONNECTION_READ_HINTS = [
-  "read",
-  "query",
-  "search",
-  "access",
-  "list",
-  "fetch",
-  "get ",
-  "events",
-  "notes",
-  "transcripts",
-  "tickets",
-  "issues",
-  "contacts",
-  "deals",
-  "recordings",
-];
-
-function connectionCanSupportReadSuggestion(connection: ConnectedIntegration): boolean {
-  const haystack = `${connection.id} ${connection.name} ${connection.category ?? ""} ${connection.description ?? ""}`.toLowerCase();
-  if (connection.category?.toLowerCase() === "browser") return true;
-  if (haystack.includes("calendar")) return true;
-  return CONNECTION_READ_HINTS.some((hint) => haystack.includes(hint));
-}
-
-function compactSuggestionPart(text: string, max = 48): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (clean.length <= max) return clean;
-  return `${clean.slice(0, max - 3).trim()}...`;
-}
-
-function personNameFromAttendee(attendee: string): string | null {
-  const raw = attendee.split("<")[0].trim() || attendee.split("@")[0].trim();
-  const local = raw.includes("@") ? raw.split("@")[0] : raw;
-  const parts = local
-    .replace(/[._-]+/g, " ")
-    .split(/\s+/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .filter((p) => !["me", "you", "no-reply", "noreply", "calendar"].includes(p.toLowerCase()));
-  if (parts.length === 0) return null;
-  return parts
-    .slice(0, 2)
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-    .join(" ");
-}
-
-function uniqueCompactList(items: string[], maxItems = 4): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of items) {
-    const key = item.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(item);
-    if (result.length >= maxItems) break;
-  }
-  return result;
-}
-
-function isTomorrow(date: Date): boolean {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return (
-    date.getFullYear() === tomorrow.getFullYear() &&
-    date.getMonth() === tomorrow.getMonth() &&
-    date.getDate() === tomorrow.getDate()
-  );
-}
-
-function joinNames(names: string[]): string {
-  if (names.length <= 2) return names.join(" and ");
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
-}
-
-async function fetchCalendarPreviewSuggestion(connection: ConnectedIntegration): Promise<Suggestion | null> {
-  const lower = `${connection.id} ${connection.name}`.toLowerCase();
-  const endpoint = lower.includes("google")
-    ? "/connections/google-calendar/events?hours_back=0&hours_ahead=48"
-    : "/connections/calendar/events?hours_back=0&hours_ahead=48";
-
-  try {
-    const res = await localFetch(endpoint);
-    if (!res.ok) return null;
-    const body = await res.json();
-    const rawEvents: PreviewCalendarEvent[] = Array.isArray(body) ? body : body.data ?? [];
-    const events = rawEvents
-      .filter((event) => event.start && !(event.isAllDay ?? event.is_all_day))
-      .map((event) => ({ ...event, startDate: new Date(event.start as string) }))
-      .filter((event) => Number.isFinite(event.startDate.getTime()) && event.startDate.getTime() >= Date.now() - 30 * 60 * 1000)
-      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
-    if (events.length === 0) return null;
-
-    const tomorrowEvents = events.filter((event) => isTomorrow(event.startDate));
-    const chosen = (tomorrowEvents.length > 0 ? tomorrowEvents : events).slice(0, 3);
-    const names = uniqueCompactList(
-      chosen.flatMap((event) => (event.attendees ?? []).map(personNameFromAttendee).filter((name): name is string => Boolean(name))),
-      4
-    );
-    const titles = uniqueCompactList(
-      chosen.map((event) => event.title?.trim()).filter((title): title is string => Boolean(title && title !== "(No title)")),
-      2
-    );
-    const descriptor = names.length >= 2
-      ? `${joinNames(names)} call briefs`
-      : titles.length > 0
-        ? `${compactSuggestionPart(titles[0], 42)} brief`
-        : "meeting briefs";
-    const day = tomorrowEvents.length > 0 ? "tomorrow's" : "upcoming";
-
-    return {
-      text: `Prep ${day} ${descriptor} from ${connection.name}`,
-      preview: titles.length > 0 ? titles.join(", ") : `uses ${connection.name}`,
-      priority: 1,
-      connectionIcon: connection.icon || connection.id,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function cleanEmailSubject(subject: string): string {
-  return compactSuggestionPart(
-    subject
-      .replace(/^\s*(re|fwd?):\s*/i, "")
-      .replace(/\s+/g, " ")
-      .trim(),
-    48
-  );
-}
-
-async function fetchGmailPreviewSuggestion(connection: ConnectedIntegration): Promise<Suggestion | null> {
-  try {
-    const query = encodeURIComponent("newer_than:14d (invite OR kickoff OR prep OR meeting)");
-    const listRes = await localFetch(`/connections/gmail/messages?maxResults=3&q=${query}`);
-    if (!listRes.ok) return null;
-    const listBody = await listRes.json();
-    const firstId = listBody?.data?.messages?.[0]?.id;
-    if (!firstId) return null;
-
-    const detailRes = await localFetch(`/connections/gmail/messages/${encodeURIComponent(firstId)}`);
-    if (!detailRes.ok) return null;
-    const detailBody = await detailRes.json();
-    const subject = detailBody?.data?.subject || detailBody?.data?.snippet;
-    if (!subject) return null;
-
-    return {
-      text: `Turn "${cleanEmailSubject(String(subject))}" into concrete prep notes`,
-      preview: `from ${connection.name}`,
-      priority: 2,
-      connectionIcon: connection.icon || connection.id,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchConnectionPreviewSuggestions(connections: ConnectedIntegration[]): Promise<Suggestion[]> {
-  const tasks = connections.map((connection) => {
-    const lower = `${connection.id} ${connection.name}`.toLowerCase();
-    if (lower.includes("calendar")) return fetchCalendarPreviewSuggestion(connection);
-    if (lower.includes("gmail")) return fetchGmailPreviewSuggestion(connection);
-    return Promise.resolve(null);
-  });
-  const suggestions = await Promise.all(tasks);
-  return suggestions.filter((suggestion): suggestion is Suggestion => Boolean(suggestion));
-}
-
-function suggestionForConnection(connection: ConnectedIntegration): Suggestion | null {
-  if (!connectionCanSupportReadSuggestion(connection)) return null;
-
-  const id = normalizeAppKey(connection.id);
-  const name = connection.name || connection.id;
-  const lower = `${id} ${name}`.toLowerCase();
-
-  // Skip browser connections
-  if (lower.includes("browser")) return null;
-
-  const base: Pick<Suggestion, "connectionIcon" | "preview" | "priority"> = {
-    connectionIcon: connection.icon || connection.id,
-    preview: `uses ${name}`,
-    priority: 2,
-  };
-
-  if (lower.includes("calendar")) {
-    return { ...base, text: `Prep upcoming meeting briefs from ${name}`, priority: 1 };
-  }
-  if (lower.includes("gmail") || lower.includes("email") || lower.includes("outlook") || lower.includes("microsoft365") || lower.includes("microsoft 365")) {
-    return { ...base, text: `Turn recent ${name} invites into concrete prep notes` };
-  }
-  if (lower.includes("docs") || lower.includes("sheets") || lower.includes("notion") || lower.includes("obsidian") || lower.includes("logseq")) {
-    return { ...base, text: `Turn recent ${name} files into a prep sheet` };
-  }
-  if (lower.includes("linear") || lower.includes("github") || lower.includes("jira") || lower.includes("trello") || lower.includes("asana") || lower.includes("clickup") || lower.includes("monday")) {
-    return { ...base, text: `Find open tasks tied to this work in ${name}` };
-  }
-  if (lower.includes("sentry")) {
-    return { ...base, text: `Find the issue driving recent ${name} events` };
-  }
-  if (lower.includes("posthog")) {
-    return { ...base, text: `Find the trend behind recent ${name} activity` };
-  }
-  if (lower.includes("hubspot") || lower.includes("salesforce") || lower.includes("intercom") || lower.includes("zendesk") || lower.includes("pipedrive")) {
-    return { ...base, text: `Prep customer call briefs from ${name}` };
-  }
-  if (lower.includes("zoom") || lower.includes("granola") || lower.includes("fireflies") || lower.includes("otter") || lower.includes("bee") || lower.includes("limitless")) {
-    return { ...base, text: `Pull recent meeting briefs from ${name}` };
-  }
-  if (lower.includes("stripe") || lower.includes("quickbooks") || lower.includes("brex")) {
-    return { ...base, text: `Summarize recent ${name} data for this work` };
-  }
-
-  return { ...base, text: `Search ${name} for context on this work` };
-}
-
-function mergeConnectionSuggestions(
-  autoSuggestions: Suggestion[],
-  connections: ConnectedIntegration[],
-  previewSuggestions: Suggestion[] = [],
-  rotationSeed = 0
-): Suggestion[] {
-  const rotateVisible = (suggestions: Suggestion[]) => {
-    if (suggestions.length <= VISIBLE_SUGGESTION_LIMIT || rotationSeed <= 0) {
-      return suggestions.slice(0, VISIBLE_SUGGESTION_LIMIT);
-    }
-
-    const offset = rotationSeed % suggestions.length;
-    const rotated = [...suggestions.slice(offset), ...suggestions.slice(0, offset)];
-    return rotated.slice(0, VISIBLE_SUGGESTION_LIMIT);
-  };
-
-  const previewIcons = new Set(previewSuggestions.map((s) => s.connectionIcon).filter(Boolean));
-  const connectionSuggestions = connections
-    .filter((connection) => !previewIcons.has(connection.icon || connection.id))
-    .map(suggestionForConnection)
-    .filter((s): s is Suggestion => Boolean(s))
-    .slice(0, CONNECTION_SUGGESTION_LIMIT);
-
-  const combinedConnectionSuggestions = [...previewSuggestions, ...connectionSuggestions].slice(0, CONNECTION_SUGGESTION_LIMIT);
-  if (combinedConnectionSuggestions.length === 0) return rotateVisible(autoSuggestions);
-
-  const [first, ...rest] = autoSuggestions;
-  const merged = first
-    ? [first, ...combinedConnectionSuggestions, ...rest]
-    : combinedConnectionSuggestions;
-  const seen = new Set<string>();
-  const deduped = merged.filter((suggestion) => {
-    const key = suggestion.text.toLowerCase().replace(/\s+/g, " ").trim();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return rotateVisible(deduped);
-}
-
-function setupDescriptionForConnection(connection: ConnectionListItem): string {
-  const lower = `${connection.id} ${connection.name} ${connection.category ?? ""}`.toLowerCase();
-  if (lower.includes("gmail") || lower.includes("email")) return "Bring email into chat";
-  if (lower.includes("slack")) return "Search team threads";
-  if (lower.includes("github")) return "Use repos and issues";
-  if (lower.includes("linear") || lower.includes("jira")) return "Track project work";
-  if (lower.includes("calendar")) return "Prep from events";
-  if (lower.includes("notion") || lower.includes("docs") || lower.includes("obsidian")) return "Search your docs";
-  if (lower.includes("browser")) return "Read current pages";
-  return connection.description ? compactSuggestionPart(connection.description, 34) : "Add more context";
-}
-
-function buildConnectionSetupSuggestions(
-  connections: ConnectionListItem[],
-  appItems: ActivityAppItem[]
-): ConnectionSetupSuggestion[] {
-  const fallbackConnectionOrder = [
-    "gmail",
-    "slack",
-    "github",
-    "github-issues",
-    "linear",
-    "google-calendar",
-    "notion",
-    "google-docs",
-    "obsidian",
-    "jira",
-    "google-sheets",
-  ];
-
-  const fallbackRank = (connection: ConnectionListItem) => {
-    const keys = [connection.id, connection.icon, connection.name]
-      .filter((key): key is string => Boolean(key))
-      .map((key) => key.toLowerCase());
-    const index = fallbackConnectionOrder.findIndex((preferred) =>
-      keys.some((key) => key === preferred || key.includes(preferred))
-    );
-    return index === -1 ? fallbackConnectionOrder.length : index;
-  };
-
-  const activityAffinity = (connection: ConnectionListItem) => {
-    const connectionText = `${connection.id} ${connection.name} ${connection.category ?? ""}`.toLowerCase();
-    const connectionParts = connectionText.split(/[\s_-]+/).filter((part) => part.length > 3);
-
-    return appItems.reduce(
-      (match, item, index) => {
-        const appText = `${item.name} ${item.app_name ?? ""}`.toLowerCase();
-        if (!appText) return match;
-
-        const isMatch =
-          appText.includes(connection.id.toLowerCase()) ||
-          appText.includes(connection.name.toLowerCase()) ||
-          connectionParts.some((part) => appText.includes(part));
-
-        if (!isMatch) return match;
-
-        return {
-          count: match.count + item.count,
-          firstSeenIndex: Math.min(match.firstSeenIndex, index),
-        };
-      },
-      { count: 0, firstSeenIndex: Number.MAX_SAFE_INTEGER }
-    );
-  };
-
-  return connections
-    .filter((connection) => !connection.connected && connection.id !== "owned-default")
-    .map((connection) => {
-      return {
-        suggestion: {
-          id: connection.id,
-          title: `Connect ${connection.name || connection.id}`,
-          description: setupDescriptionForConnection(connection),
-          icon: connection.icon || connection.id,
-        },
-        activity: activityAffinity(connection),
-        fallbackRank: fallbackRank(connection),
-      };
-    })
-    .sort((a, b) =>
-      b.activity.count - a.activity.count ||
-      a.activity.firstSeenIndex - b.activity.firstSeenIndex ||
-      a.fallbackRank - b.fallbackRank ||
-      a.suggestion.title.localeCompare(b.suggestion.title)
-    )
-    .slice(0, 2)
-    .map((entry) => entry.suggestion);
-}
-
 interface Speaker {
   id: number;
   name: string;
@@ -634,7 +244,7 @@ interface Message {
   retryPrompt?: string; // when set, renders a retry CTA on error messages
   interruptedBySteer?: boolean;
   steeredResponse?: boolean;
-  workDurationMs?: number; // wall-clock work duration for coalesced pipe-run assistants
+  workDurationMs?: number; // wall-clock work duration for coalesced assistant messages
 }
 
 type QueuedDisplayPayload = {
@@ -947,13 +557,6 @@ function extractAppFromToolCall(toolCall: ToolCall): string | undefined {
   return undefined;
 }
 
-function extractConnectionIconFromToolCall(toolCall: ToolCall): string | undefined {
-  if (toolCall.toolName === "bash") {
-    return classifyCurl(String(toolCall.args?.command ?? ""))?.connectionIconName;
-  }
-  return undefined;
-}
-
 function extractWebTargetFromToolCall(toolCall: ToolCall): WebTargetPresentation | undefined {
   if (toolCall.toolName === "bash") {
     return classifyCurl(String(toolCall.args?.command ?? ""))?.webTarget;
@@ -1223,7 +826,6 @@ function ToolCallRailItem({ toolCall, isLast }: { toolCall: ToolCall; isLast: bo
   const [expanded, setExpanded] = useState(false);
   const label = friendlyToolLabel(toolCall);
   const appName = extractAppFromToolCall(toolCall);
-  const connectionIconName = extractConnectionIconFromToolCall(toolCall);
   const webTarget = extractWebTargetFromToolCall(toolCall);
 
   return (
@@ -1232,8 +834,8 @@ function ToolCallRailItem({ toolCall, isLast }: { toolCall: ToolCall; isLast: bo
       <div className="flex flex-col items-center flex-shrink-0 w-5">
         {/* Dot */}
         <div className="relative flex items-center justify-center w-5 h-5">
-          {connectionIconName && !toolCall.isRunning && !toolCall.isError ? (
-            <ConnectionToolIcon name={connectionIconName} />
+          {appName && !toolCall.isRunning && !toolCall.isError ? (
+            <AppIcon name={appName} sizeClass="w-3.5 h-3.5" letterClass="text-[8px]" />
           ) : toolCall.isRunning ? (
             // Pulsing hollow dot for running
             <motion.div
@@ -1268,7 +870,7 @@ function ToolCallRailItem({ toolCall, isLast }: { toolCall: ToolCall; isLast: bo
         >
           {webTarget ? (
             <WebTargetIcon target={webTarget} sizeClass="w-3.5 h-3.5" letterClass="text-[8px]" />
-          ) : appName && !connectionIconName && (
+          ) : appName && (
             <AppIcon name={appName} sizeClass="w-3.5 h-3.5" letterClass="text-[8px]" />
           )}
           <span className="truncate flex-1 text-xs font-mono text-foreground/70 group-hover:text-foreground transition-colors duration-150">
@@ -1492,46 +1094,6 @@ function WebTargetIcon({
   );
 }
 
-function ConnectionToolIcon({ name }: { name: string }) {
-  const key = normalizeAppKey(name);
-  if (key === "connections") {
-    return <Plug className="w-3.5 h-3.5 text-foreground/70" aria-label="connections" />;
-  }
-  if (key === "windows-calendar") {
-    return <Calendar className="w-3.5 h-3.5 text-muted-foreground" aria-label="Windows Calendar" />;
-  }
-  if (key === "gmail") {
-    return (
-      <svg viewBox="0 0 999.517 749.831" className="w-3.5 h-3.5" aria-label="Gmail">
-        <path fill="#4285F4" d="M68.149 749.831h159.014V363.654L0 193.282v488.4C0 719.391 30.553 749.831 68.149 749.831"/>
-        <path fill="#34A853" d="M772.354 749.831h159.014c37.709 0 68.149-30.553 68.149-68.149v-488.4L772.354 363.654"/>
-        <path fill="#FBBC04" d="M772.354 68.342v295.312l227.163-170.372V102.417c0-84.277-96.203-132.322-163.557-81.779"/>
-        <path fill="#EA4335" d="M227.163 363.654V68.342l272.595 204.447 272.595-204.447v295.312L499.758 568.1"/>
-        <path fill="#C5221F" d="M0 102.417v90.865l227.163 170.372V68.342L163.557 20.638C96.09-29.906 0 18.139 0 102.417"/>
-      </svg>
-    );
-  }
-  if (key === "microsoft365" || key === "microsoft-365" || key === "office365" || key === "outlook") {
-    return (
-      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" aria-label="Microsoft 365">
-        <path fill="#F25022" d="M1 1h10v10H1z"/>
-        <path fill="#7FBA00" d="M13 1h10v10H13z"/>
-        <path fill="#00A4EF" d="M1 13h10v10H1z"/>
-        <path fill="#FFB900" d="M13 13h10v10H13z"/>
-      </svg>
-    );
-  }
-  if (key === "calcom" || key === "cal.com") {
-    return (
-      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-foreground" fill="currentColor" aria-label="Cal.com">
-        <path d="M2.408 14.488C1.035 14.488 0 13.4 0 12.058c0-1.346.982-2.443 2.408-2.443.758 0 1.282.233 1.691.765l-.66.55a1.343 1.343 0 0 0-1.03-.442c-.93 0-1.44.711-1.44 1.57 0 .86.559 1.557 1.44 1.557.413 0 .765-.147 1.043-.443l.651.573c-.391.51-.929.743-1.695.743zM6.948 10.913h.89v3.49h-.89v-.51c-.185.362-.493.604-1.083.604-.943 0-1.695-.82-1.695-1.826 0-1.007.752-1.825 1.695-1.825.585 0 .898.241 1.083.604zm.026 1.758c0-.546-.374-.998-.964-.998-.568 0-.938.457-.938.998 0 .528.37.998.938.998.586 0 .964-.456.964-.998zM8.467 9.503h.89v4.895h-.89zM9.752 13.937a.53.53 0 0 1 .542-.528c.313 0 .533.242.533.528a.527.527 0 0 1-.533.537.534.534 0 0 1-.542-.537zM14.23 13.839c-.33.403-.832.658-1.426.658a1.806 1.806 0 0 1-1.84-1.826c0-1.007.778-1.825 1.84-1.825.572 0 1.07.241 1.4.622l-.687.577c-.172-.215-.396-.376-.713-.376-.568 0-.938.456-.938.998 0 .541.37.997.938.997.343 0 .58-.179.757-.42zM14.305 12.671c0-1.007.78-1.825 1.84-1.825 1.061 0 1.84.818 1.84 1.825 0 1.007-.779 1.826-1.84 1.826-1.06-.005-1.84-.82-1.84-1.826zm2.778 0c0-.546-.37-.998-.938-.998-.568-.004-.937.452-.937.998 0 .542.37.998.937.998.568 0 .938-.456.938-.998zM24 12.269v2.13h-.89v-1.911c0-.604-.281-.864-.704-.864-.396 0-.678.197-.678.864v1.91h-.89v-1.91c0-.604-.285-.864-.704-.864-.396 0-.744.197-.744.864v1.91h-.89v-3.49h.89v.484c.185-.376.52-.564 1.035-.564.489 0 .898.241 1.123.649.224-.417.554-.65 1.153-.65.731.005 1.299.56 1.299 1.442z"/>
-      </svg>
-    );
-  }
-
-  return <AppIcon name={name} sizeClass="w-3.5 h-3.5" letterClass="text-[8px]" />;
-}
-
 function AppStatsBlock({ content }: { content: string }) {
   const items = content
     .trim()
@@ -1728,7 +1290,7 @@ function ToolCallGroup({
 
   // Auto-expand while running, auto-collapse when done (user can override).
   // `defaultExpanded` keeps the group open even when done — used for
-  // messages whose entire output is tool calls (typical pipe-runs)
+  // messages whose entire output is tool calls
   // where the tool result is the whole story.
   const isExpanded = manualExpand !== null ? manualExpand : (hasRunning || defaultExpanded);
 
@@ -1870,9 +1432,8 @@ function MessageContent({
   if (message.contentBlocks && message.contentBlocks.length > 0) {
     const grouped = groupContentBlocks(message.contentBlocks);
     const displayGroups = collapseHiddenWorkGroups(grouped, hideThinkingBlocks);
-    // When the message has no rendered prose (no text block — common for
-    // pipe-run executions whose entire output is thinking + tool calls),
-    // expand thinking blocks by default. Otherwise the collapsed
+    // When the message has no rendered prose (no text block), expand
+    // thinking blocks by default. Otherwise the collapsed
     // "thought for 0s" pill is the only visible thing on the message
     // and the chat panel reads as empty even though there's real
     // content to see.
@@ -1988,26 +1549,6 @@ function MessageContent({
   // attachment cards above already disclose what was attached, so we
   // suppress the expansion chevron in that case (label-only bubble).
   if (isUser && message.displayContent) {
-    const chipMatch = message.displayContent.match(/^\[chip:([^|]+)\|([^\]]+)\] ([\s\S]*)/);
-    if (chipMatch) {
-      const [, chipId, chipName, chipText] = chipMatch;
-      return (
-        <div className="space-y-2">
-          {attachmentsRow}
-          <div className="flex flex-wrap gap-x-1.5 gap-y-0.5">
-            <span className="inline-flex h-5 items-center gap-1 shrink-0 align-top">
-              <IntegrationIcon
-                icon={chipId}
-                className="w-4 h-4 flex items-center justify-center overflow-hidden shrink-0"
-                fallbackClassName="h-3 w-3 text-muted-foreground"
-              />
-              <span className="text-sm font-mono font-semibold text-foreground/80 leading-5">{chipName}</span>
-            </span>
-            <span className="text-sm leading-5 break-words min-w-0">{chipText}</span>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="space-y-2">
         {attachmentsRow}
@@ -2499,58 +2040,6 @@ export function StandaloneChat({
   const isFullscreen = useIsFullscreen();
   const { items: appItems } = useSqlAutocomplete("app");
   const { suggestions: autoSuggestions, refreshing: suggestionsRefreshing, forceRefresh: refreshSuggestions } = useAutoSuggestions();
-  const { templatePipes, loading: pipesLoading } = usePipes();
-  // Connected integrations (gmail, google-sheets, slack, etc.) surfaced in the
-  // filter popover so users can mention them directly with @id — helps the
-  // agent pick the right connection for a query instead of having to guess.
-  const [connections, setConnections] = useState<ConnectedIntegration[]>([]);
-  const [allConnectionItems, setAllConnectionItems] = useState<ConnectionListItem[]>([]);
-  const [connectionPreviewSuggestions, setConnectionPreviewSuggestions] = useState<Suggestion[]>([]);
-  const [showConnectBanner, setShowConnectBanner] = useState(() => {
-    try { return localStorage.getItem("screenpipe_connect_banner_dismissed") !== "true"; } catch { return true; }
-  });
-  const [suggestionRefreshSeed, setSuggestionRefreshSeed] = useState(0);
-  const connectionSetupSuggestions = React.useMemo(
-    () => buildConnectionSetupSuggestions(allConnectionItems, appItems),
-    [allConnectionItems, appItems]
-  );
-  const refreshConnectionState = React.useCallback(async () => {
-    if (isPlatformLoading) return;
-    try {
-      const res = await localFetch("/connections");
-      if (!res.ok) return;
-      const json = (await res.json()) as { data?: ConnectionListItem[] };
-      const allConnections = (json.data ?? []).map((connection) =>
-        normalizeConnectionForPlatform(connection, isWindows)
-      );
-      const connectedConnections = allConnections
-        .filter((connection) => connection.connected)
-        .map((connection) => ({
-          id: connection.id,
-          name: connection.name,
-          icon: connection.icon,
-          category: connection.category,
-          description: connection.description,
-        }));
-
-      setAllConnectionItems(allConnections);
-      setConnections(connectedConnections);
-    } catch {
-      // silent — connection-aware UI simply won't surface stale data
-    }
-  }, [isPlatformLoading, isWindows]);
-  const visibleSuggestionSignature = React.useMemo(
-    () =>
-      [...autoSuggestions, ...connectionPreviewSuggestions]
-        .map((s) => `${s.text}|${s.preview ?? ""}|${s.connectionIcon ?? ""}|${s.priority ?? ""}`)
-        .join("\n"),
-    [autoSuggestions, connectionPreviewSuggestions]
-  );
-  const connectionAwareSuggestions = autoSuggestions;
-
-  useEffect(() => {
-    setSuggestionRefreshSeed(0);
-  }, [visibleSuggestionSignature]);
   // Watch the input section's width so suggestion chips can collapse into
   // a popover on narrow chat columns.
   useEffect(() => {
@@ -2563,105 +2052,7 @@ export function StandaloneChat({
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => {
-    void refreshConnectionState();
-  }, [refreshConnectionState]);
-
-  // Re-fetch connections whenever the window becomes visible — picks up any
-  // integrations connected in Settings while the chat was open.
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refreshConnectionState();
-    };
-    const onFocus = () => void refreshConnectionState();
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener(CONNECTIONS_UPDATED_EVENT, onFocus);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener(CONNECTIONS_UPDATED_EVENT, onFocus);
-    };
-  }, [refreshConnectionState]);
-
-  // Pre-fill chat input when "Try in Chat" is clicked from the connections page.
-  // Always opens a new chat so the prompt never lands in an existing conversation.
-  // Uses a ref so the effect doesn't need startNewConversation as a dep (avoids
-  // re-registering the listener on every render while still calling the latest fn).
-  const tryInChatStartNewRef = useRef<(() => Promise<void> | void) | null>(null);
-  useEffect(() => {
-    const handler = async (e: Event) => {
-      const { connectionId, connectionName, prompt } = (e as CustomEvent<{
-        connectionId: string;
-        connectionName: string;
-        prompt: string;
-      }>).detail;
-      // Start a fresh conversation so the prompt doesn't pollute an existing chat.
-      await tryInChatStartNewRef.current?.();
-      setInput(prompt);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    };
-    window.addEventListener("try-in-chat", handler);
-    return () => window.removeEventListener("try-in-chat", handler);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (connections.length === 0) {
-      setConnectionPreviewSuggestions([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    fetchConnectionPreviewSuggestions(connections).then((suggestions) => {
-      if (!cancelled) setConnectionPreviewSuggestions(suggestions);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [connections]);
-
-  const refreshVisibleSuggestions = useCallback(() => {
-    setSuggestionRefreshSeed((seed) => seed + 1);
-    void refreshSuggestions();
-
-    if (connections.length === 0) return;
-    void fetchConnectionPreviewSuggestions(connections).then((suggestions) => {
-      setConnectionPreviewSuggestions(suggestions);
-    });
-  }, [connections, refreshSuggestions]);
-
-  // Custom summary templates (persisted in settings)
-  const [customTemplates, setCustomTemplates] = useState<CustomTemplate[]>([]);
-
-  // Load custom templates from settings
-  useEffect(() => {
-    if (isSettingsLoaded && (settings as any).customSummaryTemplates) {
-      try {
-        setCustomTemplates((settings as any).customSummaryTemplates);
-      } catch {
-        // ignore corrupt data
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSettingsLoaded]);
-
-  const saveCustomTemplate = async (template: CustomTemplate) => {
-    const updated = [...customTemplates, template];
-    setCustomTemplates(updated);
-    await updateSettings({ customSummaryTemplates: updated } as any);
-  };
-
-  const deleteCustomTemplate = async (id: string) => {
-    const updated = customTemplates.filter((t) => t.id !== id);
-    setCustomTemplates(updated);
-    await updateSettings({ customSummaryTemplates: updated } as any);
-  };
-
   const [input, setInput] = useState("");
-  const [connectionChip, setConnectionChip] = useState<{ id: string; name: string; icon: string } | null>(null);
   // Mirror `input` into a ref so the chat-switch logic in
   // useChatConversations can snapshot the outgoing composer text
   // without needing it as a dep (which would re-bind handlers every
@@ -2783,14 +2174,6 @@ export function StandaloneChat({
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  // Inline connection prefix: icon+name rendered as an absolute overlay on the
-  // textarea's first line. We measure its width and indent the textarea's first
-  // line so the typed text flows after the prefix. chipScrollTop tracks the
-  // textarea's scroll offset so the overlay scrolls with its line instead of
-  // staying pinned at the top once the input grows past maxHeight.
-  const chipPrefixRef = useRef<HTMLDivElement>(null);
-  const [chipPrefixWidth, setChipPrefixWidth] = useState(0);
-  const [chipScrollTop, setChipScrollTop] = useState(0);
   // Root of the chat surface. The webview drag-drop event is window-global and
   // this chat is kept mounted-but-hidden (display:none) on non-chat sections,
   // so we use this ref's visibility to ignore drops meant for another view
@@ -2964,10 +2347,7 @@ export function StandaloneChat({
   } | null>(null);
 
   // Active pipe execution (when watching a running pipe)
-  const [activePipeExecution, setActivePipeExecution] = useState<{
-    name: string;
-    executionId: number;
-  } | null>(null);
+  const activePipeExecution = null as { name: string; executionId: number } | null;
 
   // Follow-up suggestions state (TikTok-style)
   const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
@@ -3005,26 +2385,6 @@ export function StandaloneChat({
     () => queuedPromptsBySession[currentQueueSessionId] ?? EMPTY_QUEUED_PROMPTS,
     [queuedPromptsBySession, currentQueueSessionId]
   );
-
-  // Clear the connection chip whenever the active conversation changes (new chat or history switch).
-  useEffect(() => { setConnectionChip(null); }, [conversationId]);
-
-  // Measure the inline connection prefix so the textarea first line can indent
-  // past it. Re-measure on chip change and container resize.
-  React.useLayoutEffect(() => {
-    if (!connectionChip) { setChipPrefixWidth(0); setChipScrollTop(0); return; }
-    const el = chipPrefixRef.current;
-    if (!el) return;
-    const measure = () => setChipPrefixWidth(el.offsetWidth);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [connectionChip]);
-
-  useEffect(() => {
-    void refreshConnectionState();
-  }, [conversationId, refreshConnectionState]);
 
   // Drop any single-shot attachment metadata stashed for the previous
   // chat's next-send when the user navigates away. Without this, a user
@@ -3428,8 +2788,8 @@ export function StandaloneChat({
         // Stamp targetWindow so an autoSend prefill is claimed by THIS window
         // only. sessionStorage is per-window, so the window that stored the
         // pending prefill (and navigated here) is the correct target. Without
-        // this, pipe-store / pipes-section store the prefill with no target,
-        // and the untargeted re-emit fires in BOTH windows → duplicate chat.
+        // this, the settings prefill can be saved without a target and the
+        // untargeted re-emit fires in BOTH windows → duplicate chat.
         // An explicit targetWindow in `data` still wins (spread comes last).
         const prefillData = { targetWindow: getCurrentWindow().label, ...data };
         // Small delay to let the chat fully initialize without showing setup flashes.
@@ -3688,9 +3048,6 @@ export function StandaloneChat({
   const startNewConversationRef = useRef(startNewConversation);
   loadConversationRef.current = loadConversation;
   startNewConversationRef.current = startNewConversation;
-  // Keep the try-in-chat ref in sync so the event handler always calls the latest fn.
-  tryInChatStartNewRef.current = startNewConversation;
-
   const openConversationLocally = useCallback(async (convId: string) => {
     const { loadConversationFile } = await import("@/lib/chat-storage");
     const { useChatStore } = await import("@/lib/stores/chat-store");
@@ -3807,22 +3164,8 @@ export function StandaloneChat({
   // delivers only events whose envelope sessionId matches the
   // registration key.
   //
-  // This is also where pipe-watch sessions register: initWatch swaps
-  // conversationId to a `pipe:<name>:<execId>` id, so this effect
-  // re-runs and registers the panel as the foreground owner of pipe
-  // stdout. Switching to a chat unregisters the pipe foreground (via
-  // the cleanup) and registers the chat — pipe events naturally stop
-  // reaching the panel and start hitting the pipe-run-recorder
-  // instead, which is what we want.
-  // Pipe-watch sessions don't register foreground — pipe-watch-writer
-  // is the sole writer for them, panel mirrors store messages below.
-  // We grab `kind` synchronously here (not via the Zustand selector) so
-  // the effect re-runs on conversationId change without an extra render
-  // cycle that could miss the foreground registration window for chats.
   useEffect(() => {
     if (!conversationId) return;
-    const kind = useChatStore.getState().sessions[conversationId]?.kind;
-    if (kind === "pipe-watch") return;
     let cancelled = false;
     let off: (() => void) | null = null;
     (async () => {
@@ -3839,46 +3182,6 @@ export function StandaloneChat({
     };
   }, [conversationId]);
 
-  // Mirror chat-store messages into local React state when the panel is
-  // showing a pipe-watch session. The writer is the source of truth;
-  // this hook makes the existing render path (which reads `messages`)
-  // pick up writer updates without forking the rendering code.
-  const pipeWatchMessages = useChatStore((s) =>
-    conversationId && s.sessions[conversationId]?.kind === "pipe-watch"
-      ? s.sessions[conversationId]?.messages
-      : undefined,
-  );
-  useEffect(() => {
-    if (!pipeWatchMessages) return;
-    setMessages(pipeWatchMessages as any);
-  }, [pipeWatchMessages, setMessages]);
-
-  // Mirror isLoading / isStreaming from the store for pipe-watch
-  // sessions. Without this the panel's "writing…" indicator strands
-  // forever once the pipe finishes — the writer flips the flags in the
-  // store on agent_end, but the panel's local React state was set to
-  // true at initWatch and never gets cleared (no foreground bus
-  // registration → no panel-side terminal handler runs).
-  // Two scalar selectors instead of one returning {isLoading,isStreaming}
-  // — Zustand's shallow-equal would re-render every store mutation if
-  // the selector built a fresh object each call.
-  const pipeWatchIsLoading = useChatStore((s) => {
-    if (!conversationId) return undefined;
-    const sess = s.sessions[conversationId];
-    if (sess?.kind !== "pipe-watch") return undefined;
-    return !!sess.isLoading;
-  });
-  const pipeWatchIsStreaming = useChatStore((s) => {
-    if (!conversationId) return undefined;
-    const sess = s.sessions[conversationId];
-    if (sess?.kind !== "pipe-watch") return undefined;
-    return !!sess.isStreaming;
-  });
-  useEffect(() => {
-    if (pipeWatchIsLoading !== undefined) setIsLoading(pipeWatchIsLoading);
-    if (pipeWatchIsStreaming !== undefined) setIsStreaming(pipeWatchIsStreaming);
-  }, [pipeWatchIsLoading, pipeWatchIsStreaming]);
-
   // Self-heal a stuck "writing…" indicator on regular chat sessions.
   // The router (background) and the panel's foreground listener both set
   // store.isStreaming/isLoading to false on agent_end. Local React
@@ -3894,13 +3197,13 @@ export function StandaloneChat({
   const storeChatIsStreaming = useChatStore((s) => {
     if (!conversationId) return undefined;
     const sess = s.sessions[conversationId];
-    if (!sess || sess.kind === "pipe-watch") return undefined;
+    if (!sess) return undefined;
     return !!sess.isStreaming;
   });
   const storeChatIsLoading = useChatStore((s) => {
     if (!conversationId) return undefined;
     const sess = s.sessions[conversationId];
-    if (!sess || sess.kind === "pipe-watch") return undefined;
+    if (!sess) return undefined;
     return !!sess.isLoading;
   });
   const currentStreamingMessageId = useChatStore((s) => {
@@ -3915,29 +3218,6 @@ export function StandaloneChat({
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
-
-  // Keep the pipe-context banner in sync with the current session.
-  // When the panel switches AWAY from a pipe-watch session (user
-  // clicks a chat), `activePipeExecution` would otherwise stay set
-  // and the banner would render on top of the chat. Reading the
-  // current session record's kind / pipeContext gives us a single
-  // source of truth tied to conversationId.
-  const currentSessionKind = useChatStore((s) =>
-    s.currentId ? s.sessions[s.currentId]?.kind : undefined,
-  );
-  const currentSessionPipeContext = useChatStore((s) =>
-    s.currentId ? s.sessions[s.currentId]?.pipeContext : undefined,
-  );
-  useEffect(() => {
-    if (currentSessionKind === "pipe-watch" && currentSessionPipeContext) {
-      setActivePipeExecution({
-        name: currentSessionPipeContext.pipeName,
-        executionId: currentSessionPipeContext.executionId,
-      });
-    } else {
-      setActivePipeExecution(null);
-    }
-  }, [currentSessionKind, currentSessionPipeContext?.pipeName, currentSessionPipeContext?.executionId]);
 
   // If the Pi pool evicted the session we're currently viewing, swap the
   // panel to a fresh one. The pool only evicts idle sessions (see
@@ -4132,10 +3412,6 @@ export function StandaloneChat({
     const textarea = e.target;
     textarea.style.height = "auto";
     textarea.style.height = Math.min(textarea.scrollHeight, 150) + "px";
-    // Keep the inline connection prefix aligned with its line: typing can grow
-    // the textarea past maxHeight and scroll it without firing onScroll.
-    if (connectionChip) setChipScrollTop(textarea.scrollTop);
-
     const cursorPos = e.target.selectionStart || 0;
     const textBeforeCursor = value.slice(0, cursorPos);
     const atMatch = textBeforeCursor.match(/@([\w-]*)$/);
@@ -4180,19 +3456,6 @@ export function StandaloneChat({
       return;
     }
 
-    // Backspace at the very start of the input deletes the connection prefix
-    // (icon+name), since it sits before the typed text.
-    if (
-      (e.key === "Backspace" || e.key === "Delete") &&
-      connectionChip &&
-      e.currentTarget.selectionStart === 0 &&
-      e.currentTarget.selectionEnd === 0
-    ) {
-      e.preventDefault();
-      setConnectionChip(null);
-      return;
-    }
-
     if (isComposerSteerShortcut(e, isMac) && !showMentionDropdown) {
       e.preventDefault();
       e.stopPropagation();
@@ -4219,12 +3482,7 @@ export function StandaloneChat({
       // which is the exact silent-drop bug the pending-chips fix.
       if (pendingDocsRef.current.length > 0) return;
       if (input.trim() || pastedImages.length > 0 || attachedDocsRef.current.length > 0) {
-        const chip = connectionChip;
-        setConnectionChip(null);
-        sendMessage(
-          chip ? buildChipModelContent(chip, input.trim()) : input.trim(),
-          chip ? buildChipDisplayContent(chip, input.trim()) : undefined,
-        );
+        sendMessage(input.trim());
       }
       return;
     }
@@ -4469,8 +3727,7 @@ export function StandaloneChat({
     // This is passed via --append-system-prompt to Pi, enabling Anthropic prompt
     // caching (90% input cost reduction on subsequent messages).
     const presetPrompt = p.prompt || "";
-    const connectionsCtx = buildConnectionsContext(connections);
-    const systemPrompt = `${buildSystemPrompt()}\n\n${presetPrompt}${connectionsCtx}`.trim() || null;
+    const systemPrompt = `${buildSystemPrompt()}\n\n${presetPrompt}`.trim() || null;
     return {
       provider: p.provider,
       url: p.url || "",
@@ -4480,7 +3737,7 @@ export function StandaloneChat({
       systemPrompt,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePreset?.provider, activePreset?.url, activePreset?.model, activePreset?.apiKey, (activePreset as any)?.maxTokens, activePreset?.prompt, connections]);
+  }, [activePreset?.provider, activePreset?.url, activePreset?.model, activePreset?.apiKey, (activePreset as any)?.maxTokens, activePreset?.prompt]);
 
   const setRunningConfigFromProviderConfig = useCallback((providerConfig: NonNullable<ReturnType<typeof buildProviderConfig>>) => {
     piRunningConfigRef.current = {
@@ -4528,25 +3785,6 @@ export function StandaloneChat({
     piSessionSyncedRef.current = false;
     setRunningConfigFromProviderConfig(providerConfig);
   }, [piInfo?.pid, piInfo?.running, setRunningConfigFromProviderConfig, settings.user?.token]);
-
-  // When connections change (e.g., user connected Google Calendar in Settings),
-  // silently restart Pi if the system prompt changed and no message is in-flight.
-  useEffect(() => {
-    if (connections.length === 0) return;
-    const config = buildProviderConfig();
-    if (!config) return;
-    const running = piRunningConfigRef.current;
-    if (!running || running.systemPrompt === config.systemPrompt) return;
-    if (piMessageIdRef.current) return; // don't interrupt an active turn
-    restartCurrentPiSession(config)
-      .then(() => {
-        if (piRunningConfigRef.current) {
-          piRunningConfigRef.current = { ...piRunningConfigRef.current, systemPrompt: config.systemPrompt };
-        }
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connections]);
 
   // Check Pi status on mount — Pi is auto-started at app boot by Rust
   useEffect(() => {
@@ -5480,9 +4718,6 @@ export function StandaloneChat({
           });
           piStreamingTextRef.current = "";
           optimisticSteerRef.current = null;
-          if (piMessageIdRef.current?.startsWith("pipe-")) {
-            setActivePipeExecution(null);
-          }
           piMessageIdRef.current = null;
           piContentBlocksRef.current = [];
           setIsLoading(false);
@@ -5501,7 +4736,6 @@ export function StandaloneChat({
             piContentBlocksRef.current = [];
             piLastErrorRef.current = null;
             piThinkingStartRef.current = null;
-            setActivePipeExecution(null);
             setIsLoading(false);
             setIsStreaming(false);
           }
@@ -5509,8 +4743,7 @@ export function StandaloneChat({
       };
 
     // Publish the current handler to the forwarding ref so foreground
-    // registrations (chat + pipe-watch) dispatch through the same
-    // closure without re-binding.
+    // registrations dispatch through the same closure without re-binding.
     handleAgentEventDataRef.current = handlePiEventData;
 
     const setup = async () => {
@@ -5748,186 +4981,6 @@ export function StandaloneChat({
       commands.piAbort(piSessionIdRef.current).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Watch pipe: set up tracking from either Tauri event or sessionStorage (for cross-page navigation)
-  useEffect(() => {
-    let watchPollTimer: ReturnType<typeof setTimeout> | null = null;
-
-    // Poll execution API to check if pipe already finished (race condition fix)
-    const pollExecutionStatus = async (pipeName: string, executionId: number, pipeSid: string) => {
-      try {
-        const res = await localFetch(`/pipes/${pipeName}/executions?limit=20`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const exec = (data.data || []).find((e: any) => e.id === executionId);
-        if (!exec) return;
-
-        // Pipe already finished before live events could reach the writer
-        // (race between pipe completion and bus mount). Reconstruct the
-        // conversation from stdout and write it directly to chat-store —
-        // the panel mirrors store messages for pipe-watch sessions, so
-        // this surfaces the result without a separate render path.
-        if (exec.status !== "running") {
-          const { parsePipeNdjsonToMessages } = await import(
-            "@/lib/pipe-ndjson-to-chat"
-          );
-          let messagesFromStdout = exec.stdout
-            ? parsePipeNdjsonToMessages(exec.stdout)
-            : [];
-          if (messagesFromStdout.length === 0) {
-            const fallback =
-              exec.status === "failed"
-                ? `Pipe failed: ${exec.error_message || exec.stderr || "unknown error"}`
-                : "Pipe completed with no output.";
-            messagesFromStdout = [
-              {
-                id: `pipe-poll-${executionId}`,
-                role: "assistant",
-                content: fallback,
-                timestamp: Date.now(),
-              } as any,
-            ];
-          }
-          const store = useChatStore.getState();
-          if (store.sessions[pipeSid]) {
-            store.actions.setMessages(pipeSid, messagesFromStdout as any);
-            store.actions.endTurn(pipeSid);
-          }
-          return true;
-        }
-        return false; // still running
-      } catch {
-        return false;
-      }
-    };
-
-    const initWatch = async (pipeName: string, executionId: number, presetId?: string | null) => {
-      setActivePipeExecution({ name: pipeName, executionId });
-
-      // Apply the pipe's AI preset so the chat header reflects it
-      if (presetId && settings.aiPresets) {
-        const match = settings.aiPresets.find((p) => p.id === presetId);
-        if (match) setActivePreset(match);
-      }
-
-      const pipeSid = pipeSessionId(pipeName, executionId);
-
-      // Pipe-watch is a real session (kind: "pipe-watch"). The writer
-      // (`pipe-watch-writer`) is the sole authority for its message
-      // content — it implicit-creates messages on first content event
-      // and prefers `agent_end`'s authoritative messages array on
-      // terminal events. We upsert the session record synchronously
-      // here so the writer can identify the sid as kind=pipe-watch
-      // for any events that arrive between this call and
-      // loadConversation finishing its async setup.
-      const startedAt = new Date().toISOString();
-      const storeNow = useChatStore.getState();
-      if (!storeNow.sessions[pipeSid]) {
-        storeNow.actions.upsert({
-          id: pipeSid,
-          title: pipeName,
-          preview: "",
-          status: "streaming",
-          messageCount: 0,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          pinned: false,
-          unread: false,
-          kind: "pipe-watch",
-          pipeContext: { pipeName, executionId, startedAt },
-          isLoading: true,
-          isStreaming: true,
-        });
-      }
-
-      const pipeConv: ChatConversation = {
-        id: pipeSid,
-        title: pipeName,
-        // No placeholder — the writer creates the first message on the
-        // first real content event. Until then the panel shows a
-        // loading indicator (isLoading=true) which matches the visual
-        // we want during pipe startup.
-        messages: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        kind: "pipe-watch",
-        pipeContext: { pipeName, executionId, startedAt },
-      };
-      await loadConversationRef.current(pipeConv);
-
-      // No piMessageIdRef setup — the writer owns message lifecycle
-      // for pipe-watch. The local refs stay null/empty so the chat
-      // panel's chat-shaped event handlers (which only fire if
-      // foreground is registered, which it isn't for pipe-watch)
-      // can't accidentally write to a stale placeholder id.
-      setIsStreaming(true);
-      setIsLoading(true);
-
-      // Poll the executions API as a safety net — catches the case
-      // where the pipe finished BEFORE we mounted the foreground bus
-      // registration (the events fired and went to the recorder, not
-      // here). Once the live agent_event stream has had a chance to
-      // arrive, this poll has done its job; the live stream is the
-      // authoritative source for in-progress runs.
-      //
-      // Bug fix (2026-04-26): the previous version tore down the watch
-      // after 30s "timeout" — clearing activePipeExecution, unregistering
-      // the foreground, and nulling piMessageIdRef. For pipes that take
-      // longer than 30s this would silently (a) hide the banner, (b)
-      // strand the thinking indicator at isThinking:true, and (c) drop
-      // every subsequent live event on the floor because piMessageIdRef
-      // was null. Now we just stop polling — the watch stays alive and
-      // is driven by live events to completion.
-      let pollCount = 0;
-      const maxPolls = 10; // 30s of safety-net polling
-      const doPoll = async () => {
-        // Stop polling if the user navigated to a different chat. The
-        // writer still accumulates events for this sid in the
-        // background — we just don't need the poll fallback once we're
-        // not actively viewing.
-        if (piSessionIdRef.current !== pipeSid) return;
-        const done = await pollExecutionStatus(pipeName, executionId, pipeSid);
-        if (done) {
-          watchPollTimer = null;
-          return;
-        }
-        pollCount++;
-        if (pollCount >= maxPolls) {
-          // Safety-net budget exhausted. The pipe is running and live
-          // events are doing their job — no teardown here. The watch
-          // ends when agent_end / pipe_done arrives via the bus.
-          watchPollTimer = null;
-          return;
-        }
-        watchPollTimer = setTimeout(doPoll, 3000);
-      };
-      // Small delay before first poll to let streaming events arrive first
-      watchPollTimer = setTimeout(doPoll, 1500);
-    };
-
-    // Check sessionStorage first (set by pipes-section before navigation)
-    const stored = sessionStorage.getItem("watchPipe");
-    if (stored) {
-      sessionStorage.removeItem("watchPipe");
-      try {
-        const { pipeName, executionId, presetId } = JSON.parse(stored);
-        if (pipeName && executionId != null) {
-          initWatch(pipeName, executionId, presetId);
-        }
-      } catch {}
-    }
-
-    // Also listen for live events (in case chat is already mounted)
-    let unlisten: (() => void) | null = null;
-    listen<{ pipeName: string; executionId: number; presetId?: string | null }>("watch_pipe", (event) => {
-      const { pipeName, executionId, presetId } = event.payload;
-      initWatch(pipeName, executionId, presetId);
-    }).then((fn) => { unlisten = fn; });
-    return () => {
-      unlisten?.();
-      if (watchPollTimer) clearTimeout(watchPollTimer);
-    };
   }, []);
 
   // Generate follow-up suggestions using Apple Intelligence
@@ -6787,17 +5840,6 @@ export function StandaloneChat({
     }
   }
 
-  const openConnectionSetup = useCallback((connectionId: string) => {
-    window.dispatchEvent(
-      new CustomEvent("open-settings", {
-        detail: {
-          section: "connections",
-          connectionId: connectionId === "connections" ? null : connectionId,
-        },
-      }),
-    );
-  }, []);
-
   async function queueFollowUpMessage(userMessage: string, displayLabel?: string) {
     if ((!canChat && !autoSendBypassRef.current) || (!activePreset && !autoSendBypassRef.current)) return;
     return enqueuePiMessage(userMessage, displayLabel);
@@ -7613,12 +6655,7 @@ export function StandaloneChat({
     e.preventDefault();
     if (pendingDocsRef.current.length > 0) return; // wait for extraction to finish
     if (!input.trim() && pastedImages.length === 0 && attachedDocsRef.current.length === 0) return;
-    const chip = connectionChip;
-    setConnectionChip(null);
-    sendMessage(
-      chip ? buildChipModelContent(chip, input.trim()) : input.trim(),
-      chip ? buildChipDisplayContent(chip, input.trim()) : undefined,
-    );
+    sendMessage(input.trim());
   };
 
   const handleStop = async () => {
@@ -7769,36 +6806,6 @@ export function StandaloneChat({
           })
         )}
 
-        {false && connections.length > 0 && (
-          <>
-            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border/50 border-t">
-              connections
-            </div>
-            {connections.map((c) => {
-              const tag = connectionMentionTag(c, isWindows);
-              return (
-                <button
-                  key={`conn-${c.id}`}
-                  type="button"
-                  onClick={() => {
-                    setInput((prev) => `${tag} ${prev.trim()}`.trim() + " ");
-                    setAppFilterOpen(false);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs font-mono hover:bg-muted/50 transition-colors flex items-center justify-between gap-2"
-                >
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <ConnectionToolIcon name={c.icon || c.id} />
-                    <span className="truncate">{tag}</span>
-                  </span>
-                  <span className="text-[10px] text-muted-foreground truncate">
-                    {c.name}
-                  </span>
-                </button>
-              );
-            })}
-          </>
-        )}
-
         {recentSpeakers.length > 0 && (
           <>
             <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border/50 border-t">
@@ -7841,19 +6848,12 @@ export function StandaloneChat({
       ? piMessageIdRef.current ?? currentStreamingMessageId ?? null
       : null;
 
-  // Per-turn aggregation plan. Pipe sessions (pipe-run, pipe-watch) and any
-  // chat with an agentic loop (≥2 assistant messages with citations between
-  // user turns) fold their per-message footers into one aggregated footer
-  // rendered after the last assistant of the turn. Single-step turns keep
-  // their per-message footer untouched.
-  const isPipeSessionChat =
-    currentSessionKind === "pipe-run" || currentSessionKind === "pipe-watch";
   const citationPlan = React.useMemo(
     () =>
       computeChatCitationPlan(messages, {
-        forceAggregate: isPipeSessionChat,
+        forceAggregate: false,
       }),
-    [isPipeSessionChat, messages],
+    [messages],
   );
 
   return (
@@ -8128,15 +7128,6 @@ export function StandaloneChat({
           }}
         >
         <div className={cn(CHAT_RAIL_CLASS, "px-5 sm:px-6 py-4 space-y-4")}>
-        {/* Pipe-watch banner — shown when the user clicked through from
-            a running pipe execution. Replaces the prior synthetic
-            "Watching pipe: X" user-bubble sentinel. */}
-        {activePipeExecution && (
-          <PipeContextBanner
-            pipeName={activePipeExecution.name}
-            executionId={activePipeExecution.executionId}
-          />
-        )}
         {messages.length === 0 && !isPreparingPrefill && !activePipeExecution && !isLoading && !isStreaming && disabledReason && (!hasPresets || !hasValidModel) && (
           <div className="relative flex flex-col items-center justify-center py-12 space-y-4">
             <div className="relative p-6 rounded-2xl border bg-muted/50 border-border/50">
@@ -8166,14 +7157,12 @@ export function StandaloneChat({
         )}
         {messages.length === 0 && !isPreparingPrefill && !activePipeExecution && !isLoading && !isStreaming && hasPresets && hasValidModel && (
           <div className="flex flex-col items-center text-center">
-            <div className="relative mx-auto mb-8 w-fit">
-              <div className="absolute -inset-6 border border-dashed border-border/50" />
-              <div className="absolute -inset-3 border border-border/30" />
-              <PipeAIIconLarge size={128} thinking={false} className="relative text-foreground/80" />
-            </div>
-            <div className="flex items-center gap-[0.15em] text-4xl font-semibold tracking-[0.2em] text-foreground uppercase">
+            <div className="mb-4 flex items-center gap-[0.15em] text-4xl font-semibold tracking-[0.2em] text-foreground uppercase">
               <span>D</span><span style={{ color: "#C02E31" }}>Y</span><span>STIL</span>
             </div>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Start a chat to search your activity, draft replies, or work through notes.
+            </p>
           </div>
         )}
         <AnimatePresence mode="popLayout">
@@ -8666,23 +7655,23 @@ export function StandaloneChat({
             opens a popover when narrow (e.g. BrowserSidebar squeezed the
             chat column). 520px is the rough threshold below which 3 chips
             wrap to multiple rows and eat too much vertical space. */}
-        {messages.length > 0 && !isLoading && connectionAwareSuggestions.length > 0 && (
+        {messages.length > 0 && !isLoading && autoSuggestions.length > 0 && (
           inputSectionWidth >= 520 ? (
             <div className="px-5 sm:px-6 pt-2 flex flex-wrap gap-1.5 items-center">
-              {connectionAwareSuggestions.slice(0, 3).map((s, i) => (
+              {autoSuggestions.slice(0, 3).map((s, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => sendMessage(s.text)}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono bg-muted/20 hover:bg-foreground hover:text-background border border-border/20 hover:border-foreground text-muted-foreground transition-all duration-150 cursor-pointer max-w-[280px]"
                   title={s.preview ? `${s.text} — ${s.preview}` : s.text}
-                  >
+                >
                   <Sparkles className="w-3 h-3 shrink-0 text-muted-foreground/70" strokeWidth={1.5} aria-hidden />
                   <span className="truncate">{s.text}</span>
                 </button>
               ))}
               <button
-                onClick={refreshVisibleSuggestions}
+                onClick={refreshSuggestions}
                 disabled={suggestionsRefreshing}
                 className="p-0.5 text-muted-foreground/30 hover:text-foreground transition-colors duration-150 disabled:opacity-30 cursor-pointer"
                 title="refresh suggestions"
@@ -8711,7 +7700,7 @@ export function StandaloneChat({
                   sideOffset={6}
                 >
                   <div className="flex flex-col gap-0.5">
-                    {connectionAwareSuggestions.slice(0, 3).map((s, i) => (
+                    {autoSuggestions.slice(0, 3).map((s, i) => (
                       <button
                         key={i}
                         type="button"
@@ -8727,7 +7716,7 @@ export function StandaloneChat({
                 </PopoverContent>
               </Popover>
               <button
-                onClick={refreshVisibleSuggestions}
+                onClick={refreshSuggestions}
                 disabled={suggestionsRefreshing}
                 className="p-0.5 text-muted-foreground/30 hover:text-foreground transition-colors duration-150 disabled:opacity-30 cursor-pointer"
                 title="refresh suggestions"
@@ -8980,45 +7969,12 @@ export function StandaloneChat({
           >
             {/* Textarea row: full width so scrollbar is above the buttons and no dead zone */}
             <div className="relative flex-1 min-w-0">
-              {/* Connection chip — inline icon + name prefix on the
-                  textarea's first line. The prefix is an absolute overlay; the
-                  textarea's first line is indented past it so typed text flows
-                  after the name. X (absolute, top-right) clears it. */}
-              {connectionChip && (
-                <>
-                  {/* Clip wrapper: matches the textarea's visible box so the
-                      prefix never bleeds above the first line when scrolled. */}
-                  <div className="pointer-events-none absolute left-3 right-7 top-2.5 bottom-2.5 z-10 overflow-hidden">
-                    <div
-                      ref={chipPrefixRef}
-                      className="absolute left-0 top-0 flex h-5 items-center gap-1.5"
-                      style={{ transform: `translateY(${-chipScrollTop}px)` }}
-                    >
-                      <IntegrationIcon
-                        icon={connectionChip.icon}
-                        className="w-4 h-4 flex items-center justify-center overflow-hidden shrink-0 bg-transparent"
-                        fallbackClassName="h-3 w-3 text-muted-foreground"
-                      />
-                      <span className="text-sm font-mono font-semibold text-foreground/80 leading-5 whitespace-nowrap">{connectionChip.name}</span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Remove connection context"
-                    onClick={() => setConnectionChip(null)}
-                    className="absolute right-2.5 top-2 z-10 text-muted-foreground/60 hover:text-foreground transition-colors shrink-0"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </>
-              )}
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={handleInputChange}
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
-                onScroll={connectionChip ? (e) => setChipScrollTop(e.currentTarget.scrollTop) : undefined}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   disabledReason
@@ -9033,12 +7989,8 @@ export function StandaloneChat({
                 rows={1}
                 className={cn(
                   "w-full min-h-[44px] border-0 bg-transparent px-3 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 caret-foreground resize-none overflow-y-auto scrollbar-minimal py-2.5",
-                  connectionChip ? "pr-7" : "pr-3"
                 )}
-                style={{
-                  maxHeight: "150px",
-                  textIndent: connectionChip && chipPrefixWidth ? `${chipPrefixWidth + 8}px` : undefined,
-                }}
+                style={{ maxHeight: "150px" }}
               />
 
               <AnimatePresence>
@@ -9213,23 +8165,6 @@ export function StandaloneChat({
           </div>
         </form>
       </div> {/* End of max-w-4xl input wrapper */}
-      {messages.length === 0 && !isPreparingPrefill && !activePipeExecution && !isLoading && !isStreaming && hasPresets && hasValidModel && (
-        <div className={CHAT_RAIL_CLASS}>
-          <SummaryCards
-            onSendMessage={sendMessage}
-            autoSuggestions={connectionAwareSuggestions}
-            suggestionsRefreshing={suggestionsRefreshing}
-            onRefreshSuggestions={refreshVisibleSuggestions}
-            customTemplates={customTemplates}
-            onSaveCustomTemplate={saveCustomTemplate}
-            onDeleteCustomTemplate={deleteCustomTemplate}
-            userName={settings.userName}
-            templatePipes={templatePipes}
-            pipesLoading={pipesLoading}
-            hideHeader
-          />
-        </div>
-      )}
       </div>
       </div> {/* End of chat column */}
 
@@ -9245,21 +8180,6 @@ export function StandaloneChat({
       />
       </div> {/* End of horizontal chat+browser split */}
 
-
-      {scheduleDialogMessage && (
-        <SchedulePromptDialog
-          open={!!scheduleDialogMessage}
-          onClose={() => setScheduleDialogMessage(null)}
-          onSchedule={(message, displayLabel) => {
-            setScheduleDialogMessage(null);
-            // Clear any stale Pi message ref so sendMessage doesn't reject
-            piMessageIdRef.current = null;
-            sendMessage(message, displayLabel);
-          }}
-          originalPrompt={scheduleDialogMessage.prompt}
-          responsePreview={scheduleDialogMessage.response}
-        />
-      )}
 
       {/* Full-screen image viewer (like reference): click any attached photo to open */}
       <Dialog open={!!imageViewer} onOpenChange={(open) => !open && setImageViewer(null)}>

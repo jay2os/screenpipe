@@ -10,7 +10,6 @@ import { Providers } from "./providers";
 import { Toaster } from "@/components/ui/toaster";
 import { Suspense, useEffect } from "react";
 import { ShortcutTracker } from "@/components/shortcut-reminder";
-import { PipeInstallDialog } from "@/components/pipe-install-dialog";
 import { RecentChatSwitcherController } from "@/components/chat/recent-chat-switcher-controller";
 import { FeedbackDialog } from "@/components/feedback-dialog";
 // TODO: vault lock UI disabled for now — vault is CLI-only until app UX is polished
@@ -389,7 +388,6 @@ export default function RootLayout({
               gate) so the screenpipe:// login callback is always caught, even
               while the "sign in required" screen is showing. */}
           {!isOverlay && <ShortcutTracker />}
-          {!isOverlay && <PipeInstallDialog />}
           <Suspense fallback={null}>
             <RecentChatSwitcherMount />
           </Suspense>

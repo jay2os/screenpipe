@@ -8,7 +8,7 @@
  * A team admin shares one of their pipes through the team configs channel
  * (use-team `pushConfigPlain("pipe", name, payload)`). Teammates' apps
  * install a local copy marked with `# team-shared:vN` (mirrors the
- * `# enterprise-managed:vN` marker in use-enterprise-pipes.ts) so the app can
+ * `# enterprise-managed:vN` marker in the enterprise sync path) so the app can
  * tell managed copies apart from the user's own pipes:
  *
  * - install: copy arrives OFF by default, recipient opts in

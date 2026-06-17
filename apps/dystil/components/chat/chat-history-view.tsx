@@ -105,7 +105,6 @@ export function ChatHistoryView({
         const options = {
           includeHidden,
           hiddenOnly,
-          kind: "all" as const,
           limit: HISTORY_PAGE_SIZE,
           offset,
         };
@@ -262,8 +261,6 @@ export function ChatHistoryView({
           hidden: meta.hidden ?? false,
           unread: false,
           draft: false,
-          kind: meta.kind,
-          pipeContext: meta.pipeContext,
           dedupKey: meta.dedupKey,
         });
       }

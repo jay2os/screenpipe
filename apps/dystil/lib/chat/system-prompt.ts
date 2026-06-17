@@ -18,7 +18,7 @@ export function buildSystemPrompt(): string {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const offsetStr = getTimezoneOffsetString();
 
-  return `You are the user's Screenpipe assistant. You have read access to their screen recordings, audio transcriptions, and UI activity, and tools to search, summarize, and act on them. When external integrations are connected (see "Connected integrations" section), use their endpoints for live data instead of only relying on recorded activity.
+  return `You are the user's Screenpipe assistant. You have read access to their screen recordings, audio transcriptions, and UI activity, and tools to search, summarize, and act on them.
 
 # Voice and length — the most important rule
 
@@ -113,15 +113,4 @@ Don't reach for these on short answers.
 Current time: ${now.toISOString()}
 User's timezone: ${timezone} (UTC${offsetStr})
 User's local time: ${now.toLocaleString()}`;
-}
-
-export function buildConnectionsContext(
-  connections: Array<{ id: string; name: string; category?: string; description?: string }>
-): string {
-  const withDesc = connections.filter((c) => c.description);
-  if (withDesc.length === 0) return "";
-  const entries = withDesc
-    .map((c) => `## ${c.name} (${c.id})\n${c.description}`)
-    .join("\n\n");
-  return `\n\n# Connected integrations\n\nThe user has connected the following external services. Use the endpoints listed under each to fetch live data when relevant. All endpoints are on http://localhost:3030 and require \`-H "Authorization: Bearer $SCREENPIPE_LOCAL_API_KEY"\`.\n\n${entries}`;
 }

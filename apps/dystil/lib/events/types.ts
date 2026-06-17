@@ -16,9 +16,7 @@
  *   { source: "pi" | "pipe", sessionId: string, event: <inner NDJSON> }
  *
  * `sessionId` is always populated:
- *   - Pi sessions:   the chat-session UUID assigned by `commands.piStart`
- *   - Pipe sessions: a deterministic id derived from pipe name +
- *                    execution id via `pipeSessionId(name, execId)`
+ *   - Pi sessions: the chat-session UUID assigned by `commands.piStart`
  *
  * Lifecycle topics — `agent_terminated`, `agent_session_evicted` — share
  * the same `sessionId` keying so consumers can route lifecycle and
@@ -66,15 +64,6 @@ export interface AgentEventEnvelope {
   event: AgentInnerEvent;
 }
 
-/** Pipe lifecycle metadata — only relevant for `source === "pipe"`.
- *  Carried alongside the envelope so consumers can render pipe-specific
- *  UI (banner, sidebar grouping) without parsing the synthetic id. */
-export interface PipeContext {
-  pipeName: string;
-  executionId: number;
-  startedAt?: string;
-}
-
 export interface AgentTerminatedPayload {
   sessionId: string;
   source: AgentSource;
@@ -99,34 +88,3 @@ export const AGENT_TOPICS = {
   /** Pool kicked the session out for capacity (pi only — pipes don't pool). */
   evicted: "agent_session_evicted",
 } as const;
-
-/**
- * Deterministic session id for a pipe execution.
- *
- * Pipes don't have UUIDs the way Pi sessions do. We synthesize one from
- * the pipe name and the local execution-id row so:
- *   - the same {name, execId} pair always produces the same sessionId
- *     (idempotent across reconnects)
- *   - pipe sessionIds can never collide with Pi sessionIds (UUID v4 has
- *     hyphens; the `pipe:` prefix is reserved)
- *   - consumers can detect "this is a pipe session" by prefix when they
- *     need source-specific behavior, but the envelope's `source` field
- *     is the authoritative discriminator
- */
-export function pipeSessionId(pipeName: string, executionId: number | string): string {
-  return `pipe:${pipeName}:${executionId}`;
-}
-
-/** Inverse of `pipeSessionId` — returns null when the id isn't a pipe id. */
-export function parsePipeSessionId(
-  sessionId: string,
-): { pipeName: string; executionId: number } | null {
-  if (!sessionId.startsWith("pipe:")) return null;
-  const rest = sessionId.slice("pipe:".length);
-  const lastColon = rest.lastIndexOf(":");
-  if (lastColon < 0) return null;
-  const pipeName = rest.slice(0, lastColon);
-  const execId = Number(rest.slice(lastColon + 1));
-  if (!pipeName || !Number.isFinite(execId)) return null;
-  return { pipeName, executionId: execId };
-}

@@ -63,7 +63,6 @@ function putConversation(
     content?: string;
     title?: string;
     hidden?: boolean;
-    kind?: "chat" | "pipe-watch" | "pipe-run";
     createdAt?: number;
     titleSource?: "fallback" | "ai" | "user";
     /** When set, append an assistant message with this content. */
@@ -94,7 +93,6 @@ function putConversation(
     createdAt: opts.createdAt ?? opts.updatedAt,
     updatedAt: opts.updatedAt,
     hidden: opts.hidden,
-    kind: opts.kind,
   };
   fsMock.files.set(`${CHATS_DIR}/${id}.json`, {
     text: JSON.stringify(conv),
@@ -158,14 +156,10 @@ describe("chat-storage bounded history", () => {
     expect(fsMock.reads).toHaveLength(60);
   });
 
-  it("skips hidden and non-chat rows while filling a bounded chat page", async () => {
+  it("skips hidden rows while filling a bounded chat page", async () => {
     putConversation("hidden-new", {
       updatedAt: 30,
       hidden: true,
-    });
-    putConversation("pipe-new", {
-      updatedAt: 20,
-      kind: "pipe-run",
     });
     putConversation("visible-old", {
       updatedAt: 10,
@@ -174,7 +168,6 @@ describe("chat-storage bounded history", () => {
     const rows = await listConversations({
       limit: 1,
       includeHidden: false,
-      kind: "chat",
     });
 
     expect(rows.map((row) => row.id)).toEqual(["visible-old"]);
@@ -193,7 +186,6 @@ function meta(
     messageCount: 2,
     pinned: false,
     hidden: false,
-    kind: "chat",
     ...over,
   };
 }
@@ -277,24 +269,14 @@ describe("conversationDedupKey", () => {
   it("normalizes whitespace and case of the first user message", () => {
     expect(
       conversationDedupKey({
-        kind: "chat",
         messages: [{ role: "user", content: "  Export  Last 5 Min\nOf Video " }],
       })
     ).toBe("export last 5 min of video");
   });
 
-  it("returns null for pipe conversations (repeated runs share a prompt)", () => {
-    expect(
-      conversationDedupKey({
-        kind: "pipe-run",
-        messages: [{ role: "user", content: "time range: ... daily report" }],
-      })
-    ).toBeNull();
-  });
-
   it("returns null when there is no user message", () => {
     expect(
-      conversationDedupKey({ kind: "chat", messages: [{ role: "assistant", content: "hi" }] })
+      conversationDedupKey({ messages: [{ role: "assistant", content: "hi" }] })
     ).toBeNull();
   });
 });
@@ -332,29 +314,6 @@ describe("listConversations duplicate collapsing", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe("real");
     expect(rows[0].title).toBe("Export Last 5 Minutes of Data");
-  });
-
-  it("does not collapse distinct pipe runs that share a templated prompt", async () => {
-    putConversation("pipe_imessage-sync_1", {
-      updatedAt: 1_700_000_100_000,
-      createdAt: 1_700_000_100_000,
-      content: "time range: ... summarize messages",
-      kind: "pipe-run",
-      assistantContent: "done",
-    });
-    putConversation("pipe_imessage-sync_2", {
-      updatedAt: 1_700_000_200_000,
-      createdAt: 1_700_000_200_000,
-      content: "time range: ... summarize messages",
-      kind: "pipe-run",
-      assistantContent: "done",
-    });
-
-    const rows = await listConversations({ limit: CHAT_HISTORY_INITIAL_LIMIT });
-    expect(rows.map((r) => r.id).sort()).toEqual([
-      "pipe_imessage-sync_1",
-      "pipe_imessage-sync_2",
-    ]);
   });
 
   it("keeps same-opener chats that are far apart in time", async () => {

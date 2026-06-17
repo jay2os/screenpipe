@@ -330,8 +330,8 @@ fn main() {
         .join("tauri_commands_list");
     let src = commands_dir.join("dystil_app.txt");
     let dst = commands_dir.join("dystil_app_commands.txt");
-    if src.exists() && !dst.exists() {
-        std::fs::copy(&src, &dst).ok();
+    if src.exists() {
+        let _ = std::fs::copy(&src, &dst);
     }
 
     // Stamp the build time so `main.rs` can self-quiesce Sentry reports
