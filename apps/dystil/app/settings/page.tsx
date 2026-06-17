@@ -42,12 +42,6 @@ function SettingsContent() {
     serialize: (v) => v,
   });
 
-  // Connections moved to the main sidebar — redirect any old deep-link to home.
-  useEffect(() => {
-    const raw = new URLSearchParams(window.location.search).get("section");
-    if (raw === "connections") router.replace("/?section=connections");
-  }, [router]);
-
   // Enterprise guard: if the active section is hidden by policy, redirect to the
   // first visible section. Prevents direct-URL bypass of enterprise restrictions.
   useEffect(() => {

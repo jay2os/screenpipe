@@ -35,7 +35,6 @@ export function ShortcutTracker() {
 
     // Tray menu click events → "view_opened" PostHog event
     const trayEvents = [
-      { event: "tray-show-timeline", view: "timeline" },
       { event: "tray-show-search", view: "search" },
       { event: "tray-show-chat", view: "chat" },
     ];

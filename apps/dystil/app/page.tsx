@@ -8,7 +8,7 @@
 //
 //   Overlay window  → /overlay   (timeline, notifications, health checks)
 //   Home window     → /home      (dashboard, settings modal)
-//   Search window   → /search    (search modal)
+//   Search window   → /search    (chat history search)
 //   Chat window     → /chat      (AI chat)
 //   Onboarding      → /onboarding
 //

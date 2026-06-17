@@ -1,5 +1,5 @@
 import localforage from "localforage";
-import { StreamTimeSeriesResponse } from "@/components/rewind/timeline";
+import type { StreamTimeSeriesResponse } from "@/lib/timeline-types";
 
 // Configure localforage for timeline cache
 const timelineCache = localforage.createInstance({

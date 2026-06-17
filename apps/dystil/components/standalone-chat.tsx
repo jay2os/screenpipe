@@ -71,7 +71,6 @@ import { useIsFullscreen } from "@/lib/hooks/use-is-fullscreen";
 import { useChatFilePreview } from "@/lib/hooks/use-chat-file-preview";
 import { useSqlAutocomplete } from "@/lib/hooks/use-sql-autocomplete";
 import { homeDir, join } from "@tauri-apps/api/path";
-import { useTimelineStore } from "@/lib/hooks/use-timeline-store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   parseMentions,
@@ -120,7 +119,7 @@ import {
   sourceCitationsFromMessage,
   type SourceCitation,
 } from "@/lib/source-citations";
-import { getFaviconUrl } from "@/components/rewind/timeline/favicon-utils";
+import { getFaviconUrl } from "@/components/rewind/favicon-utils";
 import { IntegrationIcon, INTEGRATION_ICON_KEYS } from "@/components/settings/connections-section";
 import {
   formatSteerShortcut,
@@ -2547,10 +2546,7 @@ export function StandaloneChat({
         .join("\n"),
     [autoSuggestions, connectionPreviewSuggestions]
   );
-  const connectionAwareSuggestions = React.useMemo(
-    () => mergeConnectionSuggestions(autoSuggestions, connections, connectionPreviewSuggestions, suggestionRefreshSeed),
-    [autoSuggestions, connections, connectionPreviewSuggestions, suggestionRefreshSeed]
-  );
+  const connectionAwareSuggestions = autoSuggestions;
 
   useEffect(() => {
     setSuggestionRefreshSeed(0);
@@ -2602,7 +2598,6 @@ export function StandaloneChat({
       }>).detail;
       // Start a fresh conversation so the prompt doesn't pollute an existing chat.
       await tryInChatStartNewRef.current?.();
-      setConnectionChip({ id: connectionId, name: connectionName, icon: connectionId });
       setInput(prompt);
       requestAnimationFrame(() => inputRef.current?.focus());
     };
@@ -3406,25 +3401,10 @@ export function StandaloneChat({
 
     const text = e.clipboardData?.getData("text/plain") ?? "";
 
-    // Reconstruct the connection chip when pasting a copied chip message
-    // (content or display form). Restoring the pill keeps the connection
-    // context intact across copy/paste, including paste into a different chat
-    // window (handler runs per-window).
-    if (!connectionChip) {
-      const parsed = parseConnectionChip(text, (id) => INTEGRATION_ICON_KEYS.has(id));
-      if (parsed) {
-        e.preventDefault();
-        setConnectionChip({ ...parsed.chip, icon: parsed.chip.id });
-        setInput((prev) => prev + parsed.prompt);
-        requestAnimationFrame(() => inputRef.current?.focus());
-        return;
-      }
-    }
-
     if (attachPastedText(text)) {
       e.preventDefault();
     }
-  }, [processImageFile, processDocFile, attachPastedText, connectionChip]);
+  }, [processImageFile, processDocFile, attachPastedText]);
 
   // Signal that this chat window is ready to receive prefill events.
   // Other windows wait for "chat-ready" before emitting "chat-prefill"
@@ -7789,7 +7769,7 @@ export function StandaloneChat({
           })
         )}
 
-        {connections.length > 0 && (
+        {false && connections.length > 0 && (
           <>
             <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border/50 border-t">
               connections
@@ -8696,12 +8676,8 @@ export function StandaloneChat({
                   onClick={() => sendMessage(s.text)}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono bg-muted/20 hover:bg-foreground hover:text-background border border-border/20 hover:border-foreground text-muted-foreground transition-all duration-150 cursor-pointer max-w-[280px]"
                   title={s.preview ? `${s.text} — ${s.preview}` : s.text}
-                >
-                  {s.connectionIcon ? (
-                    <ConnectionToolIcon name={s.connectionIcon} />
-                  ) : (
-                    <Sparkles className="w-3 h-3 shrink-0 text-muted-foreground/70" strokeWidth={1.5} aria-hidden />
-                  )}
+                  >
+                  <Sparkles className="w-3 h-3 shrink-0 text-muted-foreground/70" strokeWidth={1.5} aria-hidden />
                   <span className="truncate">{s.text}</span>
                 </button>
               ))}
@@ -8743,11 +8719,7 @@ export function StandaloneChat({
                         className="text-left px-2 py-1.5 text-[11px] font-mono rounded-sm hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex items-start gap-1.5"
                         title={s.preview ? `${s.text} — ${s.preview}` : s.text}
                       >
-                        {s.connectionIcon ? (
-                          <ConnectionToolIcon name={s.connectionIcon} />
-                        ) : (
-                          <Sparkles className="w-3 h-3 mt-0.5 shrink-0 text-muted-foreground/70" strokeWidth={1.5} aria-hidden />
-                        )}
+                        <Sparkles className="w-3 h-3 mt-0.5 shrink-0 text-muted-foreground/70" strokeWidth={1.5} aria-hidden />
                         <span className="line-clamp-2">{s.text}</span>
                       </button>
                     ))}
@@ -9245,7 +9217,6 @@ export function StandaloneChat({
         <div className={CHAT_RAIL_CLASS}>
           <SummaryCards
             onSendMessage={sendMessage}
-            connectionSetupSuggestions={[]}
             autoSuggestions={connectionAwareSuggestions}
             suggestionsRefreshing={suggestionsRefreshing}
             onRefreshSuggestions={refreshVisibleSuggestions}

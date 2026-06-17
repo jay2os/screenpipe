@@ -5,19 +5,16 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, Plug, Plus, RefreshCw, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, RefreshCw, Sparkles } from "lucide-react";
 import posthog from "posthog-js";
 import { PipeAIIconLarge } from "@/components/pipe-ai-icon";
 import { type TemplatePipe } from "@/lib/hooks/use-pipes";
 import { FALLBACK_TEMPLATES, type CustomTemplate } from "@/lib/summary-templates";
 import { type Suggestion } from "@/lib/hooks/use-auto-suggestions";
-import { IntegrationIcon } from "@/components/settings/connections-section";
 import { CustomSummaryBuilder } from "./custom-summary-builder";
 
 interface SummaryCardsProps {
   onSendMessage: (message: string, displayLabel?: string) => void;
-  onOpenConnection?: (connectionId: string) => void;
-  connectionSetupSuggestions?: ConnectionSetupSuggestion[];
   autoSuggestions: Suggestion[];
   suggestionsRefreshing?: boolean;
   onRefreshSuggestions?: () => void;
@@ -35,9 +32,6 @@ export interface ConnectionSetupSuggestion {
   description: string;
   icon: string;
 }
-
-// ─── Suggestion refresh animation ─────────────────────────────────────────────
-// Two quiet rows matching the persistent suggestion layout.
 
 function SuggestionSkeleton() {
   const GRID_COLS = 8;
@@ -106,27 +100,11 @@ function SuggestionSkeleton() {
   );
 }
 
-function normalizeConnectionIconKey(name: string) {
-  return name.trim().toLowerCase().replace(/\.app$|\.exe$/i, "");
-}
-
-function ConnectionSuggestionIcon({ name }: { name: string }) {
-  const key = normalizeConnectionIconKey(name);
-  return (
-    <IntegrationIcon
-      icon={key}
-      className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center [&_img]:!h-3.5 [&_img]:!w-3.5 [&_svg]:!h-3.5 [&_svg]:!w-3.5"
-      fallbackClassName="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground/70"
-    />
-  );
-}
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function SummaryCards({
   onSendMessage,
-  onOpenConnection,
-  connectionSetupSuggestions = [],
   autoSuggestions,
   suggestionsRefreshing = false,
   onRefreshSuggestions,
@@ -163,11 +141,6 @@ export function SummaryCards({
     });
     onSendMessage(template.prompt, `\u{1F4CC} ${template.title}`);
   };
-
-  const visibleConnectionSetupSuggestions = [
-    ...connectionSetupSuggestions,
-    { id: "connections", title: "Connect Apps", description: "Browse all connections", icon: "connections" },
-  ];
 
   return (
     <div className="relative flex flex-col items-center py-4 px-4">
@@ -227,11 +200,7 @@ export function SummaryCards({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono bg-muted/20 hover:bg-foreground hover:text-background border border-border/20 hover:border-foreground text-muted-foreground transition-all duration-150 cursor-pointer max-w-[280px]"
                     title={s.text}
                   >
-                    {s.connectionIcon ? (
-                      <ConnectionSuggestionIcon name={s.connectionIcon} />
-                    ) : (
-                      <Sparkles className="h-3 w-3 text-muted-foreground/70 group-hover:text-foreground/70 shrink-0" strokeWidth={1.5} aria-hidden />
-                    )}
+                    <Sparkles className="h-3 w-3 text-muted-foreground/70 group-hover:text-foreground/70 shrink-0" strokeWidth={1.5} aria-hidden />
                     <span className="min-w-0 truncate">
                       {s.text}
                     </span>
@@ -311,37 +280,6 @@ export function SummaryCards({
             </div>
           </button>
         )}
-        {onOpenConnection && visibleConnectionSetupSuggestions.map((connection) => {
-          const openConnection = () => {
-            posthog.capture("home_card_clicked", {
-              kind: connection.id === "connections" ? "connection_browse_all" : "connection_setup",
-              connection_id: connection.id,
-            });
-            onOpenConnection(connection.id);
-          };
-          return (
-          <div
-            key={connection.id}
-            role="button"
-            tabIndex={0}
-            onClick={openConnection}
-            onKeyDown={(e) => e.key === "Enter" && openConnection()}
-            className="group relative text-left p-2 border border-border/40 bg-muted/10 hover:bg-foreground hover:text-background hover:border-foreground transition-all duration-150 cursor-pointer"
-          >
-            <div className="mb-0.5 flex h-4 w-4 items-center justify-center">
-              {connection.icon === "connections"
-                ? <Plug className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden />
-                : <ConnectionSuggestionIcon name={connection.icon} />}
-            </div>
-            <div className="text-[11px] font-medium group-hover:text-background mb-0.5 leading-tight pr-4">
-              {connection.title}
-            </div>
-            <div className="text-[10px] text-muted-foreground group-hover:text-background/60 leading-tight line-clamp-1">
-              {connection.description}
-            </div>
-          </div>
-          );
-        })}
       </div>
 
       {/* Expanded: more templates */}

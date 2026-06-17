@@ -66,11 +66,6 @@ import {
 } from "@/components/ui/tooltip";
 
 type MainSection = "home" | "history";
-type ConnectionFocusRequest = {
-  id: string | null;
-  category: string | null;
-  requestId: number;
-};
 
 // All valid URL sections for the home page
 const ALL_SECTIONS = [
@@ -103,7 +98,6 @@ function HomeContent() {
     },
     serialize: (value) => value,
   });
-  const [connectionFocusRequest, setConnectionFocusRequest] = useState<ConnectionFocusRequest | null>(null);
 
   const { settings } = useSettings();
   const { isTranslucent } = useSidebarContext();
@@ -152,17 +146,9 @@ function HomeContent() {
   // If current section is hidden by enterprise policy, redirect to first visible one
   useEffect(() => {
     if (!isSectionHidden(activeSection)) return;
-    const fallback = ["home", "timeline", "pipes"].find((s) => !isSectionHidden(s));
+    const fallback = ["home", "pipes"].find((s) => !isSectionHidden(s));
     setActiveSection(fallback ?? "home");
   }, [activeSection, isSectionHidden, setActiveSection]);
-
-  // Timeline can be turned off in Display settings. When it is, the nav item is
-  // gone, so bounce out of the (now unreachable) timeline section to chat.
-  useEffect(() => {
-    if ((settings.disableTimeline ?? false) && activeSection === "timeline") {
-      setActiveSection("home");
-    }
-  }, [settings.disableTimeline, activeSection, setActiveSection]);
 
   // Mount the Pi event router once, app-wide. Listens for `pi_event` /
   // `pi_session_evicted` outside any chat-component lifecycle and mirrors
@@ -740,38 +726,17 @@ function HomeContent() {
   const openSettings = useCallback((section: string = "general") => {
     router.push(`/settings?section=${section}`);
   }, [router]);
-  const clearConnectionFocusRequest = useCallback(() => {
-    setConnectionFocusRequest(null);
-  }, []);
 
-  // Listen for open-settings events from child components (e.g. connections strip)
+  // Listen for open-settings events from child components.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const section = detail?.section ?? "general";
-      // connections is a top-level main-sidebar section now, not in settings
-      if (section === "connections") {
-        setConnectionFocusRequest({
-          id: typeof detail?.connectionId === "string" ? detail.connectionId : null,
-          category: typeof detail?.category === "string" ? detail.category : null,
-          requestId: Date.now(),
-        });
-        setActiveSection("connections");
-        return;
-      }
       openSettings(section);
     };
     window.addEventListener("open-settings", handler);
     return () => window.removeEventListener("open-settings", handler);
   }, [openSettings, setActiveSection]);
-
-  // "Try in Chat" from connections page — switch to chat view so the
-  // pre-filled prompt (set by standalone-chat.tsx) becomes visible.
-  useEffect(() => {
-    const handler = () => setActiveSection("home");
-    window.addEventListener("try-in-chat", handler);
-    return () => window.removeEventListener("try-in-chat", handler);
-  }, [setActiveSection]);
 
   const renderMainSection = () => {
     switch (activeSection) {

@@ -12,7 +12,6 @@ import { commands } from "@/lib/utils/tauri";
 import { listen, emit } from "@tauri-apps/api/event";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { openSettingsWindow } from "@/lib/utils/window";
-import { useTimelineStore } from "@/lib/hooks/use-timeline-store";
 import {
   openScreenpipeViewerLink,
   screenpipeViewerPathFromHref,
@@ -23,23 +22,8 @@ export function DeeplinkHandler() {
   const { setShowChangelogDialog } = useChangelogDialog();
   const { open: openStatusDialog } = useStatusDialog();
   const { loadUser, reloadStore } = useSettings();
-  const setPendingNavigation = useTimelineStore((s) => s.setPendingNavigation);
 
   useEffect(() => {
-    const emitMeetingNoteRouteWithRetries = async (
-      meetingId: number,
-      transcript: boolean,
-    ) => {
-      const payload = { meetingId, transcript };
-      for (const delayMs of [0, 250, 750, 1500]) {
-        if (delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-        await emit("navigate", { url: "/home?section=meetings" });
-        await emit("open-meeting-note", payload);
-      }
-    };
-
     // Shared deep-link URL processor used by both the native plugin callback
     // and the custom Tauri event from single-instance handoff.
     const processDeepLinkUrl = async (url: string) => {
@@ -111,7 +95,7 @@ export function DeeplinkHandler() {
         const error = parsedUrl.searchParams.get("error");
         await emit("google-calendar-auth-result", { success, error });
         // Bring the settings window to the front so the user lands back
-        // where they started (instead of staring at the timeline).
+        // where they started.
         await openSettingsWindow();
         toast({
           title: success
@@ -135,39 +119,6 @@ export function DeeplinkHandler() {
 
       if (url.includes("status")) {
         openStatusDialog();
-      }
-
-      // Handle timeline deep links:
-      //   screenpipe://timeline?timestamp=ISO8601
-      //   screenpipe://timeline?start_time=ISO8601&end_time=ISO8601
-      if (parsedUrl.pathname === "timeline" || parsedUrl.host === "timeline") {
-        const timestamp =
-          parsedUrl.searchParams.get("timestamp") ||
-          parsedUrl.searchParams.get("start_time");
-        if (timestamp) {
-          try {
-            const date = new Date(timestamp);
-            if (!isNaN(date.getTime())) {
-              // Write to store (persists across mounts) AND emit event (instant if timeline is mounted)
-              setPendingNavigation({ timestamp });
-              await commands.showWindow("Main");
-              await emit("navigate-to-timestamp", timestamp);
-              toast({
-                title: "navigating to timestamp",
-                description: `jumping to ${date.toLocaleString()}`,
-              });
-            } else {
-              throw new Error("Invalid date");
-            }
-          } catch (error) {
-            console.error("Failed to parse timeline timestamp:", error);
-            toast({
-              title: "invalid timestamp",
-              description: "could not parse the timeline link",
-              variant: "destructive",
-            });
-          }
-        }
       }
 
       // Handle pipe install deep links: screenpipe://install-pipe?url=<encoded-url>
@@ -200,42 +151,6 @@ export function DeeplinkHandler() {
         }
       }
 
-      // Handle frame deep links: screenpipe://frame/12345
-      if (parsedUrl.pathname?.startsWith("/frame/") || parsedUrl.host === "frame") {
-        const frameId = url.split("frame/")[1]?.replace(/^\//, "");
-        if (frameId) {
-          try {
-            // Store frame navigation — timeline will resolve frame → timestamp
-            setPendingNavigation({ timestamp: "", frameId });
-            await commands.showWindow("Main");
-            await emit("navigate-to-frame", frameId);
-            toast({
-              title: "navigating to frame",
-              description: `jumping to frame ${frameId}`,
-            });
-          } catch (error) {
-            console.error("Failed to navigate to frame:", error);
-          }
-        }
-      }
-
-      // Handle meeting note deep links:
-      //   screenpipe://meeting/123?live=1
-      //   screenpipe://meeting?id=123
-      if (parsedUrl.host === "meeting" || parsedUrl.pathname?.startsWith("/meeting/")) {
-        const pathId =
-          parsedUrl.host === "meeting"
-            ? parsedUrl.pathname.replace(/^\/+/, "").split("/")[0]
-            : parsedUrl.pathname.replace(/^\/meeting\/?/, "").split("/")[0];
-        const meetingId = parsedUrl.searchParams.get("id") || pathId;
-        if (meetingId) {
-          const numericId = Number(meetingId);
-          if (!Number.isFinite(numericId)) return;
-          const transcript = parsedUrl.searchParams.get("live") !== "0";
-          await commands.showWindowActivated({ Home: { page: "meetings" } });
-          await emitMeetingNoteRouteWithRetries(numericId, transcript);
-        }
-      }
     };
 
     const setupDeepLink = async () => {
@@ -314,7 +229,7 @@ export function DeeplinkHandler() {
         unsubscribes.forEach((unsubscribe) => unsubscribe());
       });
     };
-  }, [toast, setShowChangelogDialog, openStatusDialog, loadUser, reloadStore, setPendingNavigation]);
+  }, [toast, setShowChangelogDialog, openStatusDialog, loadUser, reloadStore]);
 
   return null; // This component doesn't render anything
 } 

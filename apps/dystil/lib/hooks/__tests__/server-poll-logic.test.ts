@@ -640,7 +640,7 @@ describe("BUG REPRODUCTION - Race Condition", () => {
     //
     // If isServerDown goes: false -> true -> false
     // Timeline unmounts then remounts
-    // useEffect in use-timeline-data.tsx calls connectWebSocket()
+    // The timeline data layer calls connectWebSocket()
     // This creates a NEW WebSocket, closing the old one!
 
     let timelineMounted = false;

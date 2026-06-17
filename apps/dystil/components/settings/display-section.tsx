@@ -5,11 +5,10 @@
 
 import React from "react";
 import { useSettings } from "@/lib/hooks/use-settings";
-import { commands } from "@/lib/utils/tauri";
 import { useTheme } from "@/components/theme-provider";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
-import { Moon, Sun, Monitor, Layers, MessageSquare, PanelLeft, Maximize2, EyeOff, MinusSquare, Type } from "lucide-react";
+import { Moon, Sun, Monitor, MessageSquare, PanelLeft, Maximize2, MinusSquare, Type } from "lucide-react";
 import { usePlatform } from "@/lib/hooks/use-platform";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useToast } from "@/components/ui/use-toast";
@@ -17,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Settings } from "@/lib/hooks/use-settings";
 import { FONT_SIZE_DEFAULT, FONT_SIZE_OPTIONS } from "@/lib/utils/font-size";
 import { open } from "@tauri-apps/plugin-shell";
+import { commands } from "@/lib/utils/tauri";
 import type { SettingsField } from "./settings-search";
 
 /** Settings search index for this section. Co-located with the component so adding a field here means updating one file. See `SettingsField` in `./settings-search` for the schema. */
@@ -34,9 +34,6 @@ export function DisplaySection() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const { isMac, isWindows } = usePlatform();
-  // Guards the Disable-Timeline toggle against double-invoke (rapid toggle /
-  // re-render) so we never fire two overlapping screenpipe restarts.
-  const timelineRestartingRef = React.useRef(false);
 
   const handleSettingsChange = (newSettings: Partial<Settings>) => {
     if (settings) {
@@ -127,122 +124,6 @@ export function DisplaySection() {
                     >
                       <div className="font-medium text-xs text-foreground">{option.label}</div>
                       <div className="text-muted-foreground mt-0.5" style={{ fontSize: option.value }}>Aa</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Disable Timeline / rewind. Gates timeline-only backend work
-            (hot-cache warm-up + frame/audio buffering) and the native macOS
-            Live Text overlay. Lives in Display next to Timeline Mode, but
-            unlike the other display toggles it needs a full screenpipe restart
-            to take effect, so the handler restarts the server inline. */}
-        <Card className="border-border bg-card">
-          <CardContent className="px-3 py-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <EyeOff className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div>
-                  <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    Disable Timeline
-                    <HelpTooltip text="Turn off the timeline / rewind feature. Skips the in-memory hot frame cache (warm-up + per-frame/audio buffering) that only the timeline uses, and disables the native macOS Live Text overlay that can otherwise leak a selection layer over other windows (e.g. the chat input) and block typing. Restarts screenpipe to apply." />
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Hide rewind and skip its background work</p>
-                </div>
-              </div>
-              <Switch
-                id="disableTimeline"
-                checked={settings?.disableTimeline ?? false}
-                onCheckedChange={async (checked) => {
-                  // Collapse double-invoke (rapid toggle / re-render) into one
-                  // restart — two overlapping stop/spawn cycles raced before.
-                  if (timelineRestartingRef.current) return;
-                  timelineRestartingRef.current = true;
-                  try {
-                    // Persist first (awaited) so the backend reads the new value
-                    // on restart and the shortcut-reminder guard sees it.
-                    await updateSettings({ disableTimeline: checked });
-                    // The screenpipe shortcut only opens the timeline, so its
-                    // reminder overlay is meaningless once the timeline is off —
-                    // tear it down on disable, restore it on re-enable.
-                    try {
-                      if (checked) {
-                        await commands.hideShortcutReminder();
-                      } else if (settings?.showShortcutOverlay) {
-                        await commands.showShortcutReminder(settings.showScreenpipeShortcut);
-                      }
-                    } catch {}
-                    // disableTimeline gates timeline-only backend work (hot-cache
-                    // warm-up + frame/audio buffering) wired at server startup, so
-                    // it needs a full screenpipe restart to take effect.
-                    try {
-                      await commands.stopScreenpipe();
-                      await new Promise((r) => setTimeout(r, 500));
-                      await commands.spawnScreenpipe(null);
-                      toast({
-                        title: checked ? "timeline disabled" : "timeline enabled",
-                        description: "screenpipe restarted to apply the change.",
-                      });
-                    } catch (e) {
-                      toast({
-                        title: "failed to restart screenpipe",
-                        description: "restart screenpipe manually to apply the change.",
-                        variant: "destructive",
-                      });
-                    }
-                  } finally {
-                    timelineRestartingRef.current = false;
-                  }
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card">
-          <CardContent className="px-3 py-2.5">
-            <div className="space-y-2.5">
-              <div className="flex items-center space-x-2.5">
-                <Layers className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div>
-                  <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    Timeline Mode
-                    <HelpTooltip text="Controls how the timeline overlay appears. 'Native' uses a system overlay, 'Tauri' uses the app window." />
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Reopen timeline to apply</p>
-                </div>
-              </div>
-              <div className="flex gap-2 ml-[26px]">
-                {([
-                  { value: "fullscreen", label: "Overlay", desc: "Floating panel" },
-                  { value: "window", label: "Window", desc: "Resizable window" },
-                ]).map((option) => {
-                  const isActive = (settings?.overlayMode ?? "fullscreen") === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      onClick={async () => {
-                        handleSettingsChange({ overlayMode: option.value });
-                        try {
-                          await commands.resetMainWindow();
-                        } catch (_) {}
-                        toast({
-                          title: "overlay mode updated",
-                          description: `press the shortcut to open timeline in ${option.label.toLowerCase()} mode.`,
-                        });
-                      }}
-                      type="button"
-                      className={`flex-1 px-2.5 py-1.5 rounded-md border-2 transition-all text-left cursor-pointer ${
-                        isActive
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-muted-foreground/30"
-                      }`}
-                    >
-                      <div className="font-medium text-xs text-foreground">{option.label}</div>
-                      <div className="text-[11px] text-muted-foreground">{option.desc}</div>
                     </button>
                   );
                 })}
@@ -396,10 +277,6 @@ export function DisplaySection() {
           </Card>
         )}
 
-        {/* Shortcut reminder advertises the screenpipe shortcut, which only
-            opens the timeline — hide the whole section when the timeline is off. */}
-        {!(settings?.disableTimeline ?? false) && (
-        <>
         <Card className="border-border bg-card">
           <CardContent className="px-3 py-2.5">
             <div className="flex items-center justify-between">
@@ -473,8 +350,6 @@ export function DisplaySection() {
               </div>
             </CardContent>
           </Card>
-        )}
-        </>
         )}
 
       </div>

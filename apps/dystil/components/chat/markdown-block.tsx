@@ -4,7 +4,6 @@
 "use client";
 
 import React from "react";
-import { emit } from "@tauri-apps/api/event";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import {
@@ -15,8 +14,6 @@ import {
   screenpipeViewerPathFromHref,
 } from "@/components/markdown";
 import { ChatCodeBlock } from "@/components/ui/chat-code-block";
-import { commands } from "@/lib/utils/tauri";
-import { useTimelineStore } from "@/lib/hooks/use-timeline-store";
 import { cn } from "@/lib/utils";
 import { sanitizeToolCallXml } from "@/lib/utils/sanitize-tool-call-xml";
 
@@ -88,51 +85,18 @@ export function MarkdownBlock({
           );
         },
         a({ href, children, ...props }) {
-          if (
-            href?.startsWith("screenpipe://timeline") ||
-            href?.startsWith("screenpipe://frame") ||
-            href?.startsWith("screenpipe://view")
-          ) {
+          if (href?.startsWith("screenpipe://view")) {
             const handleScreenpipeLinkClick = async (
               e: React.MouseEvent<HTMLAnchorElement>,
             ) => {
               e.preventDefault();
               try {
-                if (href.startsWith("screenpipe://view")) {
-                  const viewerPath = screenpipeViewerPathFromHref(href);
-                  if (viewerPath && onOpenViewerPath) {
-                    onOpenViewerPath(viewerPath);
-                    return;
-                  }
-                  if (await openScreenpipeViewerLink(href)) return;
-                }
-
-                if (href.startsWith("screenpipe://frame")) {
-                  const frameId = href.split("frame/")[1]?.replace(/^\//, "");
-                  if (frameId) {
-                    useTimelineStore
-                      .getState()
-                      .setPendingNavigation({ timestamp: "", frameId });
-                    await commands.showWindow("Main");
-                    await emit("navigate-to-frame", frameId);
-                  }
+                const viewerPath = screenpipeViewerPathFromHref(href);
+                if (viewerPath && onOpenViewerPath) {
+                  onOpenViewerPath(viewerPath);
                   return;
                 }
-
-                const url = new URL(href);
-                const timestamp =
-                  url.searchParams.get("timestamp") ||
-                  url.searchParams.get("start_time");
-                if (timestamp) {
-                  const date = new Date(timestamp);
-                  if (!isNaN(date.getTime())) {
-                    useTimelineStore
-                      .getState()
-                      .setPendingNavigation({ timestamp });
-                    await commands.showWindow("Main");
-                    await emit("navigate-to-timestamp", timestamp);
-                  }
-                }
+                if (await openScreenpipeViewerLink(href)) return;
               } catch (error) {
                 console.error("Failed to open screenpipe link:", error);
               }

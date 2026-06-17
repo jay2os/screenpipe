@@ -28,7 +28,7 @@ export function createScreenpipeUrlTransform(allowedHosts: readonly string[]) {
 
 export const notificationUrlTransform = createScreenpipeUrlTransform(["view"]);
 export const viewerUrlTransform = createScreenpipeUrlTransform(["view"]);
-export const chatUrlTransform = createScreenpipeUrlTransform(["timeline", "frame", "view"]);
+export const chatUrlTransform = createScreenpipeUrlTransform(["view"]);
 
 export function screenpipeViewerPathFromHref(href: string): string | null {
   try {

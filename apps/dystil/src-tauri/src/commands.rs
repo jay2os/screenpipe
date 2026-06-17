@@ -131,21 +131,15 @@ fn native_notif_action_callback_inner(json_ptr: *const std::os::raw::c_char) {
             let Some(deeplink_url) = deeplink_url else {
                 return;
             };
-            if !is_meeting_deeplink(&deeplink_url) {
-                return;
+            if deeplink_url.starts_with("screenpipe://") {
+                let app_for_show = app_clone.clone();
+                let _ = app_clone.run_on_main_thread(move || {
+                    if let Err(e) = ShowRewindWindow::Main.show(&app_for_show) {
+                        error!("failed to show window for deeplink: {}", e);
+                    }
+                });
+                let _ = app_clone.emit("deep-link-received", deeplink_url);
             }
-
-            let app_for_show = app_clone.clone();
-            let _ = app_clone.run_on_main_thread(move || {
-                if let Err(e) = (ShowRewindWindow::Home {
-                    page: Some("meetings".to_string()),
-                })
-                .show(&app_for_show)
-                {
-                    error!("failed to show window for meeting_join: {}", e);
-                }
-            });
-            emit_meeting_note_route_with_retries(&app_clone, &deeplink_url);
         });
         return;
     }
@@ -156,11 +150,9 @@ fn native_notif_action_callback_inner(json_ptr: *const std::os::raw::c_char) {
     //   "deeplink"  → screenpipe:// in-app route, dispatched to DeeplinkHandler
     //
     // Both are handled in Rust rather than via JS emit so clicks work even
-    // when the overlay window (which hosts the JS listener in
-    // `components/notification-handler.tsx`) isn't mounted. Previous
-    // implementation relied on that listener and silently did nothing when
-    // overlay wasn't running — which is the common case for a native
-    // notification shown over the desktop.
+    // when no frontend notification listener is mounted. Previous
+    // implementation relied on a webview-side listener and silently did
+    // nothing when the app surface wasn't running.
     if action_type == Some("link") || action_type == Some("deeplink") {
         let url = parsed
             .as_ref()
@@ -183,27 +175,14 @@ fn native_notif_action_callback_inner(json_ptr: *const std::os::raw::c_char) {
         let app_clone = app.clone();
         std::thread::spawn(move || {
             if is_in_app {
-                let target = if is_meeting_deeplink(&url) {
-                    ShowRewindWindow::Home {
-                        page: Some("meetings".to_string()),
-                    }
-                } else {
-                    ShowRewindWindow::Main
-                };
-                // Show the target surface first. Meeting links should not flash
-                // Main/timeline before routing into Home -> Meeting notes.
                 let app_for_show = app_clone.clone();
                 let _ = app_clone.run_on_main_thread(move || {
-                    if let Err(e) = target.show(&app_for_show) {
+                    if let Err(e) = ShowRewindWindow::Main.show(&app_for_show) {
                         error!("failed to show window for deeplink: {}", e);
                     }
                 });
-                if is_meeting_deeplink(&url) {
-                    emit_meeting_note_route_with_retries(&app_clone, &url);
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(150));
-                    let _ = app_clone.emit("deep-link-received", url);
-                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                let _ = app_clone.emit("deep-link-received", url);
             } else {
                 // External URL — hand off to the opener plugin.
                 use tauri_plugin_opener::OpenerExt;
@@ -221,94 +200,9 @@ fn native_notif_action_callback_inner(json_ptr: *const std::os::raw::c_char) {
     let _ = app.emit("native-notification-action", &json);
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn is_meeting_deeplink(url: &str) -> bool {
-    url.starts_with("screenpipe://meeting/") || url.starts_with("screenpipe://meeting?")
-}
-
-#[cfg(target_os = "macos")]
-fn parse_meeting_deeplink(url: &str) -> Option<(u64, bool)> {
-    if !is_meeting_deeplink(url) {
-        return None;
-    }
-
-    let (base, query) = url.split_once('?').unwrap_or((url, ""));
-    let path_id = base
-        .strip_prefix("screenpipe://meeting/")
-        .and_then(|rest| rest.split('/').next())
-        .filter(|id| !id.is_empty());
-    let query_id = query.split('&').find_map(|part| {
-        let (key, value) = part.split_once('=')?;
-        (key == "id" && !value.is_empty()).then_some(value)
-    });
-    let meeting_id = path_id.or(query_id)?.parse::<u64>().ok()?;
-    let transcript = query
-        .split('&')
-        .find_map(|part| {
-            let (key, value) = part.split_once('=')?;
-            (key == "live").then_some(value != "0")
-        })
-        .unwrap_or(true);
-
-    Some((meeting_id, transcript))
-}
-
-#[cfg(target_os = "macos")]
-fn emit_meeting_note_route_with_retries(app: &tauri::AppHandle, deeplink_url: &str) {
-    let Some((meeting_id, transcript)) = parse_meeting_deeplink(deeplink_url) else {
-        warn!(
-            "invalid meeting deeplink from notification: {}",
-            deeplink_url
-        );
-        return;
-    };
-
-    let payload = serde_json::json!({
-        "meetingId": meeting_id,
-        "transcript": transcript,
-    });
-    let nav = serde_json::json!({ "url": "/home?section=meetings" });
-
-    // A notification click can cold-open the Home webview. React listeners are
-    // not guaranteed to be mounted when `show()` returns, so a single emit is
-    // lossy. Retry briefly; opening the same meeting note is idempotent and this
-    // makes one user click survive window startup, route changes, and slow dev
-    // builds.
-    for delay_ms in [150_u64, 500, 1200, 2200] {
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-        let _ = app.emit("navigate", nav.clone());
-        let _ = app.emit("open-meeting-note", payload.clone());
-    }
-}
-
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
-    use super::{fallback_local_api_config, parse_meeting_deeplink};
-
-    #[test]
-    fn parses_meeting_deeplink_path_id() {
-        assert_eq!(
-            parse_meeting_deeplink("screenpipe://meeting/123"),
-            Some((123, true))
-        );
-    }
-
-    #[test]
-    fn parses_meeting_deeplink_query_id_and_live_flag() {
-        assert_eq!(
-            parse_meeting_deeplink("screenpipe://meeting?id=456&live=0"),
-            Some((456, false))
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_meeting_deeplink() {
-        assert_eq!(
-            parse_meeting_deeplink("screenpipe://meeting/not-a-number"),
-            None
-        );
-        assert_eq!(parse_meeting_deeplink("screenpipe://settings"), None);
-    }
+    use super::fallback_local_api_config;
 
     // Regression for b7dc02415: `get_local_api_config` returned {key: null}
     // during the cold-spawn window between webview load and `spawn_screenpipe`
@@ -1530,66 +1424,6 @@ pub async fn ensure_webview_focus(_app_handle: tauri::AppHandle) -> Result<(), S
             }
         });
     }
-    Ok(())
-}
-
-/// Navigate from Search to a timestamp on the Main timeline.
-/// Shows Main, emits the navigation event from the app handle (not a webview),
-/// then closes the Search window.
-#[tauri::command]
-#[specta::specta]
-pub async fn search_navigate_to_timeline(
-    app_handle: tauri::AppHandle,
-    timestamp: String,
-    frame_id: Option<i64>,
-    search_terms: Option<Vec<String>>,
-    search_results_json: Option<String>,
-    search_query: Option<String>,
-) -> Result<(), String> {
-    // Show the Main timeline
-    ShowRewindWindow::Main
-        .show(&app_handle)
-        .map_err(|e| e.to_string())?;
-
-    // Register Escape shortcut so it works even when the overlay doesn't gain keyboard
-    // focus (e.g. Home window keeps focus when a search result opens the overlay).
-    // Bypass register_if_main_visible: window.show() is async on Windows so
-    // IsWindowVisible returns false in the same frame, causing silent skip.
-    #[cfg(not(target_os = "macos"))]
-    {
-        let app = app_handle.clone();
-        std::thread::spawn(move || {
-            let _ = register_window_shortcuts_with_generation(app);
-        });
-    }
-
-    // Emit the navigation event multiple times — the Main webview may take
-    // varying time to restore from order_out and mount the event listener.
-    // The JS side deduplicates via a seekingTimestamp ref.
-    let app = app_handle.clone();
-    tokio::spawn(async move {
-        for i in 0..5 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(if i == 0 {
-                200
-            } else {
-                200
-            }))
-            .await;
-            let _ = app.emit(
-                "search-navigate-to-timestamp",
-                serde_json::json!({
-                    "timestamp": timestamp,
-                    "frame_id": frame_id,
-                    "search_terms": search_terms,
-                    "search_results_json": search_results_json,
-                    "search_query": search_query,
-                }),
-            );
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let _ = ShowRewindWindow::Search { query: None }.close(&app);
-    });
-
     Ok(())
 }
 

@@ -50,13 +50,15 @@ export function ChatHistoryView({
   onBack,
   onNewChat,
   onSelectConversation,
+  initialQuery = "",
 }: {
   onBack: () => void;
   onNewChat: () => void;
   onSelectConversation: (conversationId: string) => void;
+  initialQuery?: string;
 }) {
   const [tab, setTab] = useState<HistoryTab>("active");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);

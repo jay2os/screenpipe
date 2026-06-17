@@ -14,14 +14,13 @@ import {
   FileText,
   Globe,
   HardDrive,
-  History,
   Plug,
   Search,
   TerminalSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SourceCitation, SourceCitationKind } from "@/lib/source-citations";
-import { jumpToTimelineMoment, openSearchForQuery } from "@/lib/timeline-navigation";
+import { openSearchForQuery } from "@/lib/search-navigation";
 
 interface SourceCitationFooterProps {
   citations: SourceCitation[];
@@ -150,11 +149,9 @@ function SourceCitationRow({ citation }: { citation: SourceCitation }) {
   const kindLabel = KIND_LABEL[citation.kind] ?? citation.kind;
   const canOpen = Boolean(citation.href);
   // A screen capture with a search term opens the search window (a thumbnail
-  // grid of every matching capture); a time-only capture jumps into the
-  // timeline at that moment; web/file sources open their external href.
+  // grid of every matching capture); web/file sources open their external href.
   const canSearch = !canOpen && Boolean(citation.query);
-  const canJump = !canOpen && !canSearch && Boolean(citation.timestamp);
-  const interactive = canOpen || canSearch || canJump;
+  const interactive = canOpen || canSearch;
 
   const inner = (
     <>
@@ -169,7 +166,6 @@ function SourceCitationRow({ citation }: { citation: SourceCitation }) {
           </span>
           {canOpen && <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/70" />}
           {canSearch && <Search className="h-3 w-3 shrink-0 text-muted-foreground/70" />}
-          {canJump && <History className="h-3 w-3 shrink-0 text-muted-foreground/70" />}
         </span>
         {citation.subtitle && (
           <span className="mt-0.5 block break-words text-muted-foreground">{citation.subtitle}</span>
@@ -189,14 +185,10 @@ function SourceCitationRow({ citation }: { citation: SourceCitation }) {
   return (
     <button
       type="button"
-      title={canSearch ? "open in search" : canJump ? "open in timeline" : undefined}
+      title={canSearch ? "open in search" : undefined}
       onClick={() => {
         if (canSearch && citation.query) {
           void openSearchForQuery(citation.query);
-          return;
-        }
-        if (canJump && citation.timestamp) {
-          void jumpToTimelineMoment(citation.timestamp);
           return;
         }
         void openUrl(citation.href!);
