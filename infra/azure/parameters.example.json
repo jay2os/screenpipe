@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "eastus"
+    },
+    "namePrefix": {
+      "value": "work-insights"
+    },
+    "imageTag": {
+      "value": "latest"
+    },
+    "supabaseUrl": {
+      "value": "replace-me"
+    },
+    "supabaseAnonKey": {
+      "value": "replace-me"
+    },
+    "databaseUrl": {
+      "value": "replace-me"
+    },
+    "publicBaseUrl": {
+      "value": "https://work-insights-ingest.example.com"
+    },
+    "bindAddr": {
+      "value": "0.0.0.0:8089"
+    }
+  }
+}

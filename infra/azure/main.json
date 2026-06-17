@@ -1,0 +1,244 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.44.1.10279",
+      "templateHash": "5558817684536392040"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "work-insights",
+      "metadata": {
+        "description": "Prefix used for all resource names."
+      }
+    },
+    "imageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Container image tag to deploy (default: latest)."
+      }
+    },
+    "supabaseUrl": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Supabase project URL used by ingest-api."
+      }
+    },
+    "supabaseAnonKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Supabase anon key used by ingest-api."
+      }
+    },
+    "databaseUrl": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Postgres connection string for Supabase."
+      }
+    },
+    "publicBaseUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Public base URL exposed by the API."
+      }
+    },
+    "bindAddr": {
+      "type": "string",
+      "defaultValue": "0.0.0.0:8089",
+      "metadata": {
+        "description": "Bind address inside the container."
+      }
+    }
+  },
+  "variables": {
+    "workspaceName": "[format('{0}-logs', parameters('namePrefix'))]",
+    "environmentName": "[format('{0}-env', parameters('namePrefix'))]",
+    "uniqueSuffix": "[uniqueString(resourceGroup().id)]",
+    "acrName": "[toLower(format('wiacr{0}', variables('uniqueSuffix')))]",
+    "ingestAppName": "[format('{0}-ingest-api', parameters('namePrefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('workspaceName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('environmentName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2022-10-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2023-01-01-preview",
+      "name": "[variables('acrName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Basic"
+      },
+      "properties": {
+        "adminUserEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('ingestAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('environmentName'))]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8089,
+            "transport": "auto"
+          },
+          "registries": [
+            {
+              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-01-01-preview').loginServer]",
+              "username": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-01-01-preview').username]",
+              "passwordSecretRef": "acr-password"
+            }
+          ],
+          "secrets": [
+            {
+              "name": "acr-password",
+              "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-01-01-preview').passwords[0].value]"
+            },
+            {
+              "name": "database-url",
+              "value": "[parameters('databaseUrl')]"
+            },
+            {
+              "name": "supabase-url",
+              "value": "[parameters('supabaseUrl')]"
+            },
+            {
+              "name": "supabase-anon-key",
+              "value": "[parameters('supabaseAnonKey')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "ingest-api",
+              "image": "[format('{0}/work-insights:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-01-01-preview').loginServer, parameters('imageTag'))]",
+              "command": [
+                "/usr/local/bin/work-insights-api"
+              ],
+              "env": [
+                {
+                  "name": "WORK_INSIGHTS_DATABASE_URL",
+                  "secretRef": "database-url"
+                },
+                {
+                  "name": "SUPABASE_URL",
+                  "secretRef": "supabase-url"
+                },
+                {
+                  "name": "SUPABASE_ANON_KEY",
+                  "secretRef": "supabase-anon-key"
+                },
+                {
+                  "name": "WORK_INSIGHTS_BIND_ADDR",
+                  "value": "[parameters('bindAddr')]"
+                },
+                {
+                  "name": "WORK_INSIGHTS_PUBLIC_BASE_URL",
+                  "value": "[parameters('publicBaseUrl')]"
+                },
+                {
+                  "name": "RUST_LOG",
+                  "value": "info"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8089
+                  },
+                  "initialDelaySeconds": 10,
+                  "periodSeconds": 15
+                },
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8089
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 1
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
+        "[resourceId('Microsoft.App/managedEnvironments', variables('environmentName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "containerAppsEnvironmentName": {
+      "type": "string",
+      "value": "[variables('environmentName')]"
+    },
+    "ingestAppResourceName": {
+      "type": "string",
+      "value": "[variables('ingestAppName')]"
+    },
+    "acrLoginServer": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-01-01-preview').loginServer]"
+    },
+    "acrName": {
+      "type": "string",
+      "value": "[variables('acrName')]"
+    }
+  }
+}

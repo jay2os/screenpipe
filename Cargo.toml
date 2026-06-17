@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "vendor/screenpipe/crates/*",
+    "crates/dystil-protocol",
 ]
 exclude = [
     "vendor/screenpipe/apps/screenpipe-app-tauri/src-tauri",
