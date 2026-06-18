@@ -314,7 +314,7 @@ export function UsageSection() {
       case "screenpipe-cloud":
       case "screenpipe":
       case "pi":
-        return "Screenpipe Cloud";
+        return "Mimir Cloud";
       case "native-ollama":
       case "ollama":
         return "Ollama";

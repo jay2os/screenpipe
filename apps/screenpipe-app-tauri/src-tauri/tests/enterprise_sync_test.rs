@@ -12,7 +12,7 @@
 //!
 //! Why a separate test target: the desktop binary's main test build has
 //! pre-existing compile errors in unrelated modules (pi.rs) that block
-//! `cargo test --bin screenpipe-app`. An integration test target compiles
+//! `cargo test --bin mimir-app`. An integration test target compiles
 //! independently and avoids that bin tree entirely — keeping these tests
 //! actually runnable in CI.
 

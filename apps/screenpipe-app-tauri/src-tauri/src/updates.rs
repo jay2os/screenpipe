@@ -342,7 +342,7 @@ impl UpdatesManager {
             let (menu_text, enabled) = if is_source_build(app) {
                 ("Auto-updates unavailable (source build)", true) // Enable to show info dialog
             } else {
-                ("Screenpipe is up to date", false)
+                ("Mimir is up to date", false)
             };
             Some(
                 MenuItemBuilder::with_id("update_now", menu_text)
@@ -479,9 +479,9 @@ impl UpdatesManager {
             {
                 let theme = dark_light::detect().unwrap_or(Mode::Dark);
                 let icon_path = if theme == Mode::Light {
-                    "assets/screenpipe-logo-tray-updates-black.png"
+                    "assets/mimir-logo-tray-updates-black.png"
                 } else {
-                    "assets/screenpipe-logo-tray-updates-white.png"
+                    "assets/mimir-logo-tray-updates-white.png"
                 };
 
                 let path = self
@@ -546,7 +546,7 @@ impl UpdatesManager {
                     let _ = app_notif
                         .notification()
                         .builder()
-                        .title("screenpipe update ready")
+                        .title("Mimir update ready")
                         .body(format!("v{} ready — restart to update", version_str))
                         .show();
                 });
@@ -566,12 +566,12 @@ impl UpdatesManager {
 
             if let Some(ref item) = self.update_menu_item {
                 item.set_enabled(false)?;
-                item.set_text("Downloading latest version of screenpipe")?;
+                item.set_text("Downloading latest version of Mimir")?;
             }
 
             #[cfg(target_os = "windows")]
             {
-                // Windows: stop screenpipe before replacing the binary
+                // Windows: stop Mimir before replacing the binary
                 if let Err(err) =
                     stop_screenpipe(self.app.state::<RecordingState>(), self.app.clone()).await
                 {
@@ -690,7 +690,7 @@ impl UpdatesManager {
                             let _ = app_notif
                                 .notification()
                                 .builder()
-                                .title("screenpipe update available")
+                                .title("Mimir update available")
                                 .body(format!("v{} is ready — sign in to download", version_str))
                                 .show();
                         });
@@ -723,9 +723,9 @@ impl UpdatesManager {
                         let _ = app_notif
                             .notification()
                             .builder()
-                            .title("screenpipe update failed")
+                            .title("Mimir update failed")
                             .body(format!(
-                                "v{} couldn't download — open screenpipe to retry",
+                                "v{} couldn't download — open Mimir to retry",
                                 version_str
                             ))
                             .show();
@@ -754,12 +754,12 @@ impl UpdatesManager {
                 let notification = app_notif.notification().builder();
                 let result = if auto_update {
                     notification
-                        .title("screenpipe updating")
+                        .title("Mimir updating")
                         .body(format!("v{} downloaded — restarting now", version_str))
                         .show()
                 } else {
                     notification
-                        .title("screenpipe update ready")
+                        .title("Mimir update ready")
                         .body(format!("v{} downloaded — restart to update", version_str))
                         .show()
                 };
@@ -813,7 +813,7 @@ impl UpdatesManager {
                     "you're running the latest version (v{})",
                     self.app.package_info().version
                 ))
-                .title("screenpipe is up to date")
+                .title("Mimir is up to date")
                 .buttons(MessageDialogButtons::Ok)
                 .show(|_| {});
         }
@@ -954,7 +954,7 @@ fn check_whats_new(app: &tauri::AppHandle) {
 
         let body = if release_notes.is_empty() {
             format!(
-                "screenpipe updated to **v{}**! check the [changelog](https://screenpi.pe/changelog) for details.",
+                "Mimir updated to **v{}**! check the [changelog](https://screenpi.pe/changelog) for details.",
                 current_version
             )
         } else {
@@ -966,7 +966,7 @@ fn check_whats_new(app: &tauri::AppHandle) {
                 release_notes
             };
             format!(
-                "screenpipe updated to **v{}**!\n\n{}\n\n[full changelog](https://screenpi.pe/changelog)",
+                "Mimir updated to **v{}**!\n\n{}\n\n[full changelog](https://screenpi.pe/changelog)",
                 current_version, truncated
             )
         };
@@ -981,7 +981,7 @@ fn check_whats_new(app: &tauri::AppHandle) {
                 // with their own toggle. See the pipe gate in
                 // notifications/routes.rs (#3880).
                 "type": "app-update",
-                "title": format!("🎉 screenpipe v{} — what's new", current_version),
+                "title": format!("🎉 Mimir v{} — what's new", current_version),
                 "body": body,
             }))
             .send()

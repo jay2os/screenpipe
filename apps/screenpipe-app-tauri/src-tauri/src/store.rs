@@ -910,7 +910,7 @@ pub enum AudioEngineFallbackReason {
 impl AudioEngineFallbackReason {
     pub fn notification_title(&self) -> &'static str {
         match self {
-            Self::NotLoggedIn | Self::NotSubscribed => "Screenpipe Cloud unavailable",
+            Self::NotLoggedIn | Self::NotSubscribed => "Mimir Cloud unavailable",
             Self::MissingDeepgramKey => "Deepgram unavailable",
         }
     }
@@ -918,10 +918,10 @@ impl AudioEngineFallbackReason {
     pub fn notification_body(&self) -> &'static str {
         match self {
             Self::NotLoggedIn => {
-                "You are not logged in, so audio is being transcribed locally with Whisper Turbo (fast). Log in to use Screenpipe Cloud."
+                "You are not logged in, so audio is being transcribed locally with Whisper Turbo (fast). Log in to use Mimir Cloud."
             }
             Self::NotSubscribed => {
-                "Screenpipe Cloud requires an active subscription, so audio is being transcribed locally with Whisper Turbo (fast)."
+                "Mimir Cloud requires an active subscription, so audio is being transcribed locally with Whisper Turbo (fast)."
             }
             Self::MissingDeepgramKey => {
                 "Deepgram has no API key configured, so audio is being transcribed locally with Whisper Turbo (fast)."

@@ -73,6 +73,27 @@ export function UpdateBanner({ className, compact = false, variant = "default" }
     const os = platform();
 
     try {
+      // #3622: gate restart on boot-ready. Windows downloadAndInstall calls
+      // process::exit internally, and relaunch() does the same on macOS —
+      // both race onnxruntime teardown against still-initializing native
+      // sessions if startup hasn't finished. Backend waits up to 60s and
+      // returns one of "proceed" | "errored" | "pending".
+      const gate = await commands.awaitSafeRestart(60);
+      if (gate !== "proceed") {
+        setIsInstalling(false);
+        toast({
+          title: "Mimir is still starting up",
+          description:
+            gate === "errored"
+              ? "startup error — open settings to see details before restarting"
+              : "finish startup first, then click update again",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // On Windows, the update is not pre-downloaded by the backend (unlike macOS/Linux)
+      // We need to check for update, download, and install it before relaunching
       // Windows: NSIS installer calls process::exit directly, bypassing our
       // ExitRequested handler — plain relaunch is fine. macOS/Linux go through
       // restart_for_update which sets QUIT_REQUESTED so the exit isn't blocked
@@ -97,11 +118,11 @@ export function UpdateBanner({ className, compact = false, variant = "default" }
           duration: Infinity,
         });
 
-        // Stop screenpipe before update on Windows
+        // Stop Mimir before update on Windows
         try {
           await commands.stopScreenpipe();
         } catch (e) {
-          console.warn("failed to stop screenpipe:", e);
+          console.warn("failed to stop Mimir:", e);
         }
 
         // Get or check for the update
@@ -133,7 +154,7 @@ export function UpdateBanner({ className, compact = false, variant = "default" }
         // gates internally, so no separate `awaitSafeRestart` call needed.
         toast({
           title: "installing update...",
-          description: "screenpipe will restart automatically",
+          description: "Mimir will restart automatically",
           duration: 10000,
         });
         const res = await commands.restartForUpdate(60);
@@ -190,7 +211,7 @@ export function UpdateBanner({ className, compact = false, variant = "default" }
         <div className="flex items-center gap-2 flex-1">
           <Sparkles className="h-4 w-4 text-primary" />
           <span>
-            screenpipe <span className="font-medium">v{authRequired.version}</span> is available — sign in to download
+            Mimir <span className="font-medium">v{authRequired.version}</span> is available — sign in to download
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -269,7 +290,7 @@ export function UpdateBanner({ className, compact = false, variant = "default" }
       <div className="flex items-center gap-2 flex-1">
         <Sparkles className="h-4 w-4 text-primary" />
         <span>
-          screenpipe <span className="font-medium">v{updateInfo.version}</span> is ready
+            Mimir <span className="font-medium">v{updateInfo.version}</span> is ready
         </span>
       </div>
       <div className="flex items-center gap-2">

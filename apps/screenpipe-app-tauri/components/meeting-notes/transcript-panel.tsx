@@ -231,7 +231,7 @@ function liveErrorSummary(message: string | null): string {
   ) {
     return "cloud connection failed";
   }
-  if (lower.includes("screenpipe cloud login")) {
+  if (lower.includes("mimir cloud login")) {
     return "cloud login required";
   }
   if (lower.includes("daily") && lower.includes("limit")) {

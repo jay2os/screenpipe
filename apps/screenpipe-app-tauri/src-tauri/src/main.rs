@@ -6,6 +6,8 @@
 #![allow(deprecated)] // cocoa/objc crate deprecations — will migrate to objc2 later
 #![allow(unused_imports)]
 
+extern crate self as screenpipe_app;
+
 use analytics::AnalyticsManager;
 use commands::show_main_window;
 use serde_json::json;
@@ -509,9 +511,9 @@ async fn main() {
         Some(sentry::init((
             "https://da4edafe2c8e5e8682505945695ecad7@o4505591122886656.ingest.us.sentry.io/4510761355116544",
             sentry::ClientOptions {
-                release: Some(format!("screenpipe-app@{}", app_version).into()),
+                release: Some(format!("mimir-app@{}", app_version).into()),
                 send_default_pii: false,
-                server_name: Some("screenpipe-app".into()),
+                server_name: Some("mimir-app".into()),
                 before_send: Some(std::sync::Arc::new(|mut event| {
                     // Self-expiring Sentry reports. Each build stamps the
                     // unix epoch seconds of its build time (see build.rs) and
@@ -1014,7 +1016,7 @@ async fn main() {
                 .unwrap_or_else(|_| screenpipe_core::paths::default_screenpipe_data_dir());
             let file_appender = RollingFileAppender::builder()
                 .rotation(Rotation::DAILY)
-                .filename_prefix("screenpipe-app")
+                .filename_prefix("mimir-app")
                 .filename_suffix("log")
                 .max_log_files(5)
                 .build(log_dir)?;

@@ -24,12 +24,12 @@ const SCHEDULE_OPTIONS = [
 
 // Pipe creation context — mirrors the PIPE_CREATION_PROMPT in pipes-section.tsx
 // and the screenpipe-pipe-creator SKILL.md
-const PIPE_CONTEXT = `create a screenpipe pipe that does the following.
+const PIPE_CONTEXT = `create a Mimir pipe that does the following.
 
 ## what is a pipe?
 
 a pipe is a scheduled AI agent defined as a single markdown file: ~/.screenpipe/pipes/{name}/pipe.md
-every N minutes, screenpipe runs a coding agent (like pi or claude-code) with the pipe's prompt.
+every N minutes, Mimir runs a coding agent (like pi or claude-code) with the pipe's prompt.
 the agent can query your screen data, write files, call external APIs, send notifications, etc.
 
 ## pipe.md format
@@ -47,16 +47,16 @@ Your prompt instructions here...
 
 ## context header
 
-before execution, screenpipe prepends a context header to the prompt with:
+before execution, Mimir prepends a context header to the prompt with:
 - time range (start/end timestamps based on the schedule interval)
 - current date
 - user's timezone
-- screenpipe API base URL
+- Mimir API base URL
 - output directory
 
 the AI agent uses this context to query the right time range. no template variables needed in the prompt.
 
-## screenpipe search API
+## Mimir search API
 
 the agent queries screen data via the local REST API:
 
@@ -134,7 +134,7 @@ export function SchedulePromptDialog({
     const userRequest = [
       `Create a pipe called "${name}" with schedule: ${schedule}`,
       ``,
-      `The pipe should run this prompt against my screenpipe data:`,
+      `The pipe should run this prompt against my Mimir data:`,
       ``,
       originalPrompt.slice(0, 2000),
       ``,
