@@ -35,6 +35,7 @@ mod icons;
 use crate::analytics::start_analytics;
 mod agent_event_emitter;
 mod audio_exclusions;
+mod auth;
 mod calendar;
 mod capture_session;
 mod chatgpt_oauth;
@@ -88,6 +89,7 @@ mod windows_overlay;
 mod windows_webview_env;
 
 pub use server::*;
+pub use auth::*;
 
 pub use recording::*;
 
@@ -1353,10 +1355,9 @@ async fn main() {
             'start_server: {
                 let store_clone = store.clone();
                 let data_dir_clone = data_dir.clone();
-                if !store_clone.app_entitled_or_dev() {
-                    info!("Skipping server auto-start: active screenpipe plan required");
+                if !store_clone.is_logged_in() {
+                    info!("Skipping server auto-start: user must be signed in");
                     crate::health::set_recording_status(crate::health::RecordingStatus::Paused);
-                    let _ = app_handle.emit("app-entitlement-required", ());
                     break 'start_server;
                 }
                 let recording_state = app_handle.state::<RecordingState>();

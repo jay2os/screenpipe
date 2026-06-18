@@ -4,8 +4,8 @@
 
 //! OAuth PKCE flow for ChatGPT (OpenAI Codex) login.
 //!
-//! Lets ChatGPT Plus/Pro subscribers authenticate via their existing subscription
-//! and use models like GPT-4o without a separate API key.
+//! Lets ChatGPT users authenticate with their existing account and use models
+//! like GPT-4o without a separate API key.
 //!
 //! Flow (matches Codex CLI):
 //!  1. PKCE authorize → auth code

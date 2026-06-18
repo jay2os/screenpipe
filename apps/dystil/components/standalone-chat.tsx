@@ -185,8 +185,8 @@ const STATIC_MENTION_SUGGESTIONS: MentionSuggestion[] = [
 // TOOLS definition removed — search is now handled by Pi's screenpipe-search skill
 
 /**
- * Extract tier info from gateway error JSON embedded in error strings and
- * return a user-facing message appropriate to their actual subscription tier.
+ * Extract usage tier info from gateway error JSON embedded in error strings and
+ * return a user-facing message appropriate to the current login state.
  */
 
 

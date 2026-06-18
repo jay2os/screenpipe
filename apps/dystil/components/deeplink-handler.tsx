@@ -7,7 +7,6 @@ import { useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { useChangelogDialog } from "@/lib/hooks/use-changelog-dialog";
 import { useStatusDialog } from "@/lib/hooks/use-status-dialog";
-import { useSettings } from "@/lib/hooks/use-settings";
 import { commands } from "@/lib/utils/tauri";
 import { listen, emit } from "@tauri-apps/api/event";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
@@ -16,12 +15,12 @@ import {
   openScreenpipeViewerLink,
   screenpipeViewerPathFromHref,
 } from "@/components/markdown";
+import { finishOAuthCallback } from "@/lib/auth-session";
 
 export function DeeplinkHandler() {
   const { toast } = useToast();
   const { setShowChangelogDialog } = useChangelogDialog();
   const { open: openStatusDialog } = useStatusDialog();
-  const { loadUser, reloadStore } = useSettings();
 
   useEffect(() => {
     // Shared deep-link URL processor used by both the native plugin callback
@@ -29,60 +28,38 @@ export function DeeplinkHandler() {
     const processDeepLinkUrl = async (url: string) => {
       const parsedUrl = new URL(url);
 
-      // Handle API key auth
-      if (url.includes("api_key=")) {
-        const apiKey = parsedUrl.searchParams.get("api_key");
-        if (apiKey) {
-          try {
-            await loadUser(apiKey);
-            toast({
-              title: "logged in!",
-              description: "you have been logged in",
-            });
-            // Notify the chat UI to restart Pi with the new token so it
-            // picks up the new account immediately. The chat component knows
-            // the active session ID; we just pass the key.
-            try {
-              await emit("pi-reauth", { apiKey });
-              console.log("[deeplink] emitted pi-reauth with new auth token");
-            } catch (e) {
-              console.log("[deeplink] pi-reauth emit skipped:", e);
-            }
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            console.error("failed to load user:", msg);
-            toast({
-              title: "failed to load user",
-              description: msg || "unknown error",
-            });
-          }
+      if (parsedUrl.protocol === "dystil:" && parsedUrl.host === "auth") {
+        const authError = parsedUrl.searchParams.get("error");
+        if (authError) {
+          toast({
+            title: "auth failed",
+            description: authError,
+            variant: "destructive",
+          });
+          return;
         }
-      }
 
-      // Handle subscription activation deep link.
-      // Louis's email/success page can include:
-      //   screenpipe://subscription-success?purchase_token=<token>
-      // This lets existing app users activate pro without re-logging in.
-      if (
-        parsedUrl.host === "subscription-success" ||
-        parsedUrl.pathname?.includes("subscription-success")
-      ) {
-        const purchaseToken = parsedUrl.searchParams.get("purchase_token");
-        if (purchaseToken) {
-          try {
-            await loadUser(purchaseToken);
+        try {
+          await finishOAuthCallback(url);
+          toast({
+            title: "signed in",
+            description: "your Dystil session is ready",
+          });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg.includes("no pending Dystil login")) {
+            await emit("dystil-auth-refresh");
             toast({
-              title: "welcome to screenpipe pro!",
-              description: "your subscription is now active",
+              title: "email verified",
+              description: "you can sign in now",
             });
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            toast({
-              title: "activation failed",
-              description: msg || "try logging out and back in",
-              variant: "destructive",
-            });
+            return;
           }
+          toast({
+            title: "sign-in failed",
+            description: msg || "unknown error",
+            variant: "destructive",
+          });
         }
       }
 
@@ -206,7 +183,7 @@ export function DeeplinkHandler() {
 
       listen("cli-login", async (event) => {
         console.log("received cli-login event:", event);
-        await reloadStore();
+        await emit("dystil-auth-refresh");
       }),
     ]);
 
@@ -218,7 +195,7 @@ export function DeeplinkHandler() {
         unsubscribes.forEach((unsubscribe) => unsubscribe());
       });
     };
-  }, [toast, setShowChangelogDialog, openStatusDialog, loadUser, reloadStore]);
+  }, [toast, setShowChangelogDialog, openStatusDialog]);
 
   return null; // This component doesn't render anything
 } 

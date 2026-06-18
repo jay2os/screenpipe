@@ -25,20 +25,12 @@ export const userSchema = z.object({
   email: z.string().email("Invalid email format").nullable(),
   image: z.string().url("Invalid image URL").nullable(),
   token: z.string().nullable(),
-  clerk_id: z.string().nullable(),
   api_key: z.string().nullable(),
   credits: creditsSchema.nullable(),
-  stripe_connected: z.boolean().nullable(),
-  stripe_account_status: z.string().nullable(),
-  github_username: z.string().nullable(),
   bio: z.string().nullable(),
   website: z.string().url("Invalid website URL").nullable(),
   contact: z.string().nullable(),
-  cloud_subscribed: z.boolean().nullable(),
   credits_balance: z.number().nullable(),
-  app_entitled: z.boolean().nullable().optional(),
-  subscription_plan: z.string().nullable().optional(),
-  entitlement: z.any().nullable().optional(),
 });
 
 export const aiProviderTypeSchema = z.enum(["openai", "native-ollama", "custom", "screenpipe-cloud", "pi", "anthropic"]);

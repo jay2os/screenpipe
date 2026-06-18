@@ -8,14 +8,25 @@ Portable cloud ingest for Screenpipe work-insights.
 cd cloud
 docker compose up -d
 export WORK_INSIGHTS_DATABASE_URL=postgres://work_insights:work_insights@localhost:55432/work_insights
-export SUPABASE_URL=https://<project-ref>.supabase.co
-export SUPABASE_ANON_KEY=<supabase-anon-key>
+export DATABASE_URL=$WORK_INSIGHTS_DATABASE_URL
+export BETTER_AUTH_URL=http://localhost:8089
+export BETTER_AUTH_SECRET=<openssl-rand-base64-32>
+export AUTH_INTERNAL_URL=http://127.0.0.1:3001
+export AUTH_PORT=3001
+export RESEND_API_KEY=<resend-api-key>
+export AUTH_EMAIL_FROM="Dystil <auth@example.com>"
 export WORK_INSIGHTS_AI_BASE_URL=http://localhost:11434/v1
 export WORK_INSIGHTS_AI_SEGMENT_MODEL=qwen2.5:7b-instruct
 export WORK_INSIGHTS_AI_DAILY_MODEL=qwen2.5:14b-instruct
 export WORK_INSIGHTS_PUBLIC_BASE_URL=http://localhost:8089
 export WORK_INSIGHTS_BIND_ADDR=0.0.0.0:8089
 export RUST_LOG=info
+
+cd services/auth
+bun install
+bun run dev
+
+cd ../..
 cargo run -p work-insights-ingest-api
 ```
 
@@ -31,7 +42,7 @@ export WORK_INSIGHTS_DATABASE_URL=postgres://work_insights:work_insights@localho
 cargo run -p work-insights-ingest-api --bin bootstrap_org -- \
   --org-name "Acme" \
   --org-slug acme \
-  --owner-supabase-user-id <supabase-user-uuid> \
+  --owner-supabase-user-id <better-auth-user-id> \
   --owner-email founder@acme.com \
   --domain acme.com
 ```
@@ -71,7 +82,7 @@ The ingest API processes and writes data on the request path:
 local sync -> work-insights-api -> Postgres
 ```
 
-`PUT /v1/ingest/uploads/:batch_id` verifies the upload checksum and byte count,
+`PUT /v1/ingest/uploads/{batch_id}` verifies the upload checksum and byte count,
 decodes the JSONL body, inserts `content_atoms`, `input_signals`, and
 `ingest_cursors` in a DB transaction, then returns `{ "status": "completed" }`.
 
@@ -81,7 +92,7 @@ User-level daily report reads are available through the API:
 
 - `GET /v1/reports/me/daily?date=YYYY-MM-DD`
 - `GET /v1/reports/me/timeline?date=YYYY-MM-DD`
-- `GET /v1/reports/me/evidence/:atom_id`
+- `GET /v1/reports/me/evidence/{atom_id}`
 
 The report pipeline uses an OpenAI-compatible AI gateway contract. Local
 development is expected to point at Ollama or another local compatible server.
@@ -121,16 +132,16 @@ The API now splits authenticated user access from background ingest:
 - `GET /me`
 - `POST /devices/register`
 - `GET /devices`
-- `POST /devices/:device_id/revoke`
+- `POST /devices/{device_id}/revoke`
 
-The user-facing endpoints above expect `Authorization: Bearer <supabase-jwt>`,
+The user-facing endpoints above expect `Authorization: Bearer <better-auth-session>`,
 mirror the user into `app_users`, resolve org membership, and manage per-device
 credentials for ingest.
 
-Background ingest endpoints now use `Authorization: Bearer <device-token>` as
+Background ingest endpoints now use `Authorization: Device <device-token>` as
 the primary path. The server resolves canonical `org_id`, `app_users.id`, and
 `devices.id` from that token before writing ingest rows.
 
-Authenticated report reads under `/v1/reports/me/*` now use the Supabase JWT
+Authenticated report reads under `/v1/reports/me/*` now use the Better Auth session
 path again and return correct data for newly ingested rows stamped with
 canonical app and device ids.

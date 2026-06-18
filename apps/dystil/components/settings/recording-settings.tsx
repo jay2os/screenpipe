@@ -132,7 +132,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSqlAutocomplete } from "@/lib/hooks/use-sql-autocomplete";
 import * as Sentry from "@sentry/react";
 import { defaultOptions } from "tauri-plugin-sentry-api";
-import { useLoginDialog } from "../login-dialog";
 import { BatterySaverSection } from "./battery-saver-section";
 // ScheduleSettings moved to privacy-section
 import { ValidatedInput } from "../ui/validated-input";
@@ -183,7 +182,6 @@ const TRANSCRIPTION_ENGINE_LABELS: Record<string, string> = {
 
 type AudioEngineFallbackReason =
   | "notLoggedIn"
-  | "notSubscribed"
   | "missingDeepgramKey";
 
 type AudioEngineResolution = {
@@ -211,14 +209,6 @@ const getAudioEngineResolution = (settings: Settings): AudioEngineResolution => 
     };
   }
 
-  if (requested === "screenpipe-cloud" && !settings.user?.cloud_subscribed) {
-    return {
-      requested,
-      active: fallback,
-      fallbackReason: "notSubscribed",
-    };
-  }
-
   if (requested === "deepgram" && !hasDeepgramKey) {
     return {
       requested,
@@ -238,8 +228,6 @@ const getAudioFallbackMessage = (reason: AudioEngineFallbackReason) => {
   switch (reason) {
     case "notLoggedIn":
       return "You are not logged in, so audio is being transcribed locally.";
-    case "notSubscribed":
-      return "Screenpipe Cloud requires an active subscription, so audio is being transcribed locally.";
     case "missingDeepgramKey":
       return "Deepgram has no API key configured, so audio is being transcribed locally.";
   }
@@ -1695,7 +1683,7 @@ function HighFpsCard({
 }
 
 export function RecordingSettings() {
-  const { settings, updateSettings, getDataDir, loadUser } = useSettings();
+  const { settings, updateSettings, getDataDir } = useSettings();
   const [openLanguages, setOpenLanguages] = React.useState(false);
   // Dev-only: warn if searchIndex drifts from rendered headings. State-gated
   // fields are marked `conditional: true` in the index above, so no false
@@ -1837,7 +1825,6 @@ export function RecordingSettings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [showOpenAIApiKey, setShowOpenAIApiKey] = useState(false);
   const [isRefreshingSubscription, setIsRefreshingSubscription] = useState(false);
-  const { checkLogin } = useLoginDialog();
   const overlayData = useOverlayData();
   const [hwCapability, setHwCapability] = useState<HardwareCapability | null>(null);
 
@@ -1873,7 +1860,6 @@ export function RecordingSettings() {
     [
       settings.audioTranscriptionEngine,
       settings.deepgramApiKey,
-      settings.user?.cloud_subscribed,
       settings.user?.id,
       settings.user?.token,
     ]
@@ -2189,34 +2175,9 @@ export function RecordingSettings() {
     value: string,
     realtime = false
   ) => {
-    const isLoggedIn = checkLogin(settings.user);
+    const isLoggedIn = !!settings.user?.token;
     // If trying to use cloud but not logged in
     if (value === "screenpipe-cloud" && !isLoggedIn) {
-      return;
-    }
-
-    // If trying to use cloud but not subscribed
-    if (value === "screenpipe-cloud" && !settings.user?.cloud_subscribed) {
-      try {
-        const response = await fetch("https://screenpi.pe/api/cloud-sync/checkout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${settings.user?.token}`,
-          },
-          body: JSON.stringify({
-            tier: "pro",
-            billingPeriod: "monthly",
-            userId: settings.user?.id,
-            email: settings.user?.email,
-          }),
-        });
-        const data = await response.json();
-        openUrl(data.url || "https://screenpipe.com/billing");
-      } catch {
-        openUrl("https://screenpipe.com/billing");
-      }
-      // Revert back to previous value in the Select component
       return;
     }
 
@@ -2551,8 +2512,8 @@ Your screen is a pipe. Everything you see, hear, and type flows through it. Scre
                   <SelectContent>
                     <SelectGroup>
                       <SelectLabel className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">cloud</SelectLabel>
-                      <SelectItem value="screenpipe-cloud" disabled={!settings.user?.cloud_subscribed}>
-                        Screenpipe Cloud {!settings.user?.cloud_subscribed && "(pro)"}{hwCapability?.recommendedEngine === "screenpipe-cloud" && " ★"}
+                      <SelectItem value="screenpipe-cloud" disabled={!settings.user?.token}>
+                        Screenpipe Cloud {!settings.user?.token && "(sign in)"}{hwCapability?.recommendedEngine === "screenpipe-cloud" && " ★"}
                       </SelectItem>
                       <SelectItem value="deepgram">Deepgram</SelectItem>
                     </SelectGroup>
@@ -2601,28 +2562,9 @@ Your screen is a pipe. Everything you see, hear, and type flows through it. Scre
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     {audioEngineResolution.fallbackReason === "notLoggedIn" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        data-testid="audio-engine-fallback-login"
-                        onClick={() => checkLogin(settings.user)}
-                      >
-                        Log in
-                      </Button>
-                    )}
-                    {audioEngineResolution.fallbackReason === "notSubscribed" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        data-testid="audio-engine-fallback-upgrade"
-                        onClick={() => openUrl("https://screenpipe.com/billing")}
-                      >
-                        Upgrade
-                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Sign in from the app login screen
+                      </span>
                     )}
                     <Button
                       type="button"

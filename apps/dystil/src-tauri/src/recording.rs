@@ -71,13 +71,13 @@ fn build_config(app: &tauri::AppHandle) -> Result<RecordingConfig, String> {
     Ok(store.to_recording_config(data_dir))
 }
 
-fn require_app_entitlement(store: &SettingsStore) -> Result<(), String> {
-    if store.app_entitled_or_dev() {
+fn require_login(store: &SettingsStore) -> Result<(), String> {
+    if store.is_logged_in() {
         return Ok(());
     }
 
     crate::health::set_recording_status(crate::health::RecordingStatus::Paused);
-    Err("subscription_required: active screenpipe plan required to start recording".to_string())
+    Err("login_required: sign in to start recording".to_string())
 }
 
 pub fn notify_audio_engine_fallback(store: &SettingsStore) {
@@ -396,7 +396,7 @@ pub async fn start_capture(
 ) -> Result<(), String> {
     info!("Starting capture session");
     let store = SettingsStore::get(&app).ok().flatten().unwrap_or_default();
-    require_app_entitlement(&store)?;
+    require_login(&store)?;
 
     // Race guard: short-circuit duplicate invocations.
     //
@@ -584,7 +584,7 @@ pub async fn spawn_screenpipe(
     }
 
     let store = SettingsStore::get(&app).ok().flatten().unwrap_or_default();
-    if let Err(err) = require_app_entitlement(&store) {
+    if let Err(err) = require_login(&store) {
         state.is_starting.store(false, Ordering::SeqCst);
         state.is_starting_capture.store(false, Ordering::SeqCst);
         return Err(err);
@@ -962,7 +962,7 @@ async fn start_capture_internal(
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
     let store = SettingsStore::get(app).ok().flatten().unwrap_or_default();
-    require_app_entitlement(&store)?;
+    require_login(&store)?;
 
     let mut capture_guard = state.capture.lock().await;
     if capture_guard.is_some() {

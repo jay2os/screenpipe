@@ -416,7 +416,7 @@ export function AIProviderConfig({
             }
           }
         } catch { /* ignore */ }
-        // Fallback: Codex models available via ChatGPT subscription
+        // Fallback: Codex models available via ChatGPT login
         setOpenAIModels([
           { id: "gpt-5.4" }, { id: "gpt-5.3-codex" },
           { id: "gpt-5.2-codex" }, { id: "gpt-5.2" }, { id: "gpt-5.1-codex-max" },
@@ -1364,13 +1364,6 @@ export const AIPresetsSelector = ({
       return;
     }
 
-    // Prevent deletion of screenpipe-cloud preset for Pro subscribers
-    if (preset.provider === "screenpipe-cloud" && settings.user?.cloud_subscribed) {
-      toast.error("Cannot delete cloud preset", {
-        description: "This preset is included with your Business subscription",
-      });
-      return;
-    }
     if (preset.defaultPreset) {
       toast.error("Cannot delete default preset", {
         description: "Please set another preset as default first",

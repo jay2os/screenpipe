@@ -1059,7 +1059,7 @@ const AISection = ({
             console.error("[chatgpt] model fetch error:", err);
           }
           if (!loaded) {
-            // Codex models available via ChatGPT Plus/Pro subscription
+            // Codex models available via ChatGPT login
             setModels([
               "gpt-5.5", "gpt-5.5-codex",
               "gpt-5.4", "gpt-5.3-codex",
@@ -1204,7 +1204,7 @@ const AISection = ({
           <AIProviderCard
             type="openai-chatgpt"
             title="ChatGPT"
-            description="Sign in with your ChatGPT Plus/Pro subscription"
+            description="Sign in with your ChatGPT account"
             imageSrc="/images/openai.png"
             selected={settingsPreset?.provider === "openai-chatgpt"}
             onClick={() => handleAiProviderChange("openai-chatgpt")}
@@ -1512,22 +1512,7 @@ const AISection = ({
                             key={model.id}
                             value={model.id}
                             onSelect={async () => {
-                              if (model.id === "claude-opus-4-8" && !settings.user?.cloud_subscribed) {
-                                if (!settings.user?.token) {
-                                  await commands.openLoginWindow();
-                                } else {
-                                  try {
-                                    const res = await fetch("https://screenpi.pe/api/cloud-sync/checkout", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${settings.user.token}` },
-                                      body: JSON.stringify({ tier: "pro", billingPeriod: "monthly", userId: settings.user.id, email: settings.user.email }),
-                                    });
-                                    const data = await res.json();
-                                    if (data.url) await openUrl(data.url);
-                                  } catch (e) {
-                                    console.error("checkout failed:", e);
-                                  }
-                                }
+                              if (model.id === "claude-opus-4-8" && !settings.user?.token) {
                                 return;
                               }
                               updateSettingsPreset({ model: model.id });
@@ -2123,15 +2108,6 @@ useEffect(() => {
         });
         return;
       }
-      if (presetToRemove?.provider === "screenpipe-cloud" && settings.user?.cloud_subscribed) {
-        toast({
-          title: "Cannot delete cloud preset",
-          description: "This preset is included with your Business subscription",
-          variant: "destructive",
-        });
-        return;
-      }
-
       const checkIfDefault = settings.aiPresets.find(
         (preset) => preset.id === id
       )?.defaultPreset;

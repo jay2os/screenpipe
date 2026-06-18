@@ -300,7 +300,7 @@ export function useTeam() {
     [token, fetchTeam]
   );
 
-  // bootstrap secure sharing for teams created on web/checkout before the
+  // bootstrap secure sharing for teams created on the web before the
   // desktop app had a chance to generate the local encryption key.
   const initializeTeamKey = useCallback(async () => {
     if (!token) throw new Error("not logged in");

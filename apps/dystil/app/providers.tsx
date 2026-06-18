@@ -10,14 +10,13 @@ import { ChangelogDialogProvider } from "@/lib/hooks/use-changelog-dialog";
 import { SettingsProvider } from "@/lib/hooks/use-settings";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PermissionMonitorProvider } from "@/lib/hooks/use-permission-monitor";
-import { AuthGuard } from "@/lib/auth-guard";
 import { forwardRef } from "react";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { commands } from "@/lib/utils/tauri";
 import { useUpdateListener } from "@/components/update-banner";
-import { AppEntitlementGate } from "@/components/app-entitlement-gate";
 import { DeeplinkHandler } from "@/components/deeplink-handler";
 import { usePathname } from "next/navigation";
+import { DystilSessionProvider } from "@/components/auth/session-provider";
 
 /// Global mount point for the updater event listener. Lives here (not in
 /// per-page hooks) so the listener is registered for the lifetime of the
@@ -49,9 +48,9 @@ export const Providers = forwardRef<
   // renders client-only without a hydration step.
   const [mounted, setMounted] = useState(false);
   // The deep-link handler (which turns the screenpipe:// login callback into a
-  // loadUser call) MUST stay mounted outside the entitlement gate. Otherwise the
-  // "sign in required" screen unmounts it and the login token is dropped, so
-  // sign-in can never complete and the user is locked out for good.
+  // auth callback into a stored Better Auth session) MUST stay mounted
+  // outside the auth overlay. Otherwise the login screen would unmount it and
+  // the callback would never complete.
   const pathname = usePathname();
   const isOverlay = pathname === "/shortcut-reminder";
   useEffect(() => {
@@ -137,23 +136,21 @@ export const Providers = forwardRef<
     <Suspense>
     <NuqsAdapter>
       <SettingsProvider>
-        <AuthGuard>
-          <ThemeProvider defaultTheme="system" storageKey="screenpipe-ui-theme">
-            <ChangelogDialogProvider>
-              <PermissionMonitorProvider>
-                <UpdateListenerMount />
-                <PostHogProvider client={posthog}>
-                  {mounted ? (
-                    <>
-                      {!isOverlay && <DeeplinkHandler />}
-                      <AppEntitlementGate>{children}</AppEntitlementGate>
-                    </>
-                  ) : null}
-                </PostHogProvider>
-              </PermissionMonitorProvider>
-            </ChangelogDialogProvider>
-          </ThemeProvider>
-        </AuthGuard>
+        <ThemeProvider defaultTheme="system" storageKey="screenpipe-ui-theme">
+          <ChangelogDialogProvider>
+            <PermissionMonitorProvider>
+              <UpdateListenerMount />
+              <PostHogProvider client={posthog}>
+                {mounted ? (
+                  <DystilSessionProvider>
+                    {!isOverlay && <DeeplinkHandler />}
+                    {children}
+                  </DystilSessionProvider>
+                ) : null}
+              </PostHogProvider>
+            </PermissionMonitorProvider>
+          </ChangelogDialogProvider>
+        </ThemeProvider>
       </SettingsProvider>
     </NuqsAdapter>
     </Suspense>

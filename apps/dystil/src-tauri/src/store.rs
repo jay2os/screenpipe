@@ -42,8 +42,6 @@ pub fn resolved_api_auth_key() -> Option<String> {
 
 /// Magic header for encrypted store.bin files.
 const STORE_MAGIC: &[u8; 8] = b"SPSTORE1";
-const APP_ENTITLEMENT_MAX_STALE_HOURS: i64 = 72;
-const APP_ENTITLEMENT_CLOCK_SKEW_MINUTES: i64 = 5;
 
 // ---------------------------------------------------------------------------
 // Settings-loss recovery
@@ -805,20 +803,12 @@ pub struct User {
     pub email: Option<String>,
     pub image: Option<String>,
     pub token: Option<String>,
-    pub clerk_id: Option<String>,
     pub api_key: Option<String>,
     pub credits: Option<Credits>,
-    pub stripe_connected: Option<bool>,
-    pub stripe_account_status: Option<String>,
-    pub github_username: Option<String>,
     pub bio: Option<String>,
     pub website: Option<String>,
     pub contact: Option<String>,
-    pub cloud_subscribed: Option<bool>,
     pub credits_balance: Option<i32>,
-    pub app_entitled: Option<bool>,
-    pub subscription_plan: Option<String>,
-    pub entitlement: Option<serde_json::Value>,
 }
 
 impl Default for User {
@@ -829,87 +819,27 @@ impl Default for User {
             email: None,
             image: None,
             token: None,
-            clerk_id: None,
             api_key: None,
             credits: None,
-            stripe_connected: None,
-            stripe_account_status: None,
-            github_username: None,
             bio: None,
             website: None,
             contact: None,
-            cloud_subscribed: None,
             credits_balance: None,
-            app_entitled: None,
-            subscription_plan: None,
-            entitlement: None,
         }
     }
-}
-
-fn parse_entitlement_time(
-    value: Option<&serde_json::Value>,
-) -> Option<chrono::DateTime<chrono::Utc>> {
-    value
-        .and_then(|value| value.as_str())
-        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.with_timezone(&chrono::Utc))
-}
-
-fn entitlement_checked_recently(entitlement: &serde_json::Value) -> bool {
-    let Some(checked_at) = parse_entitlement_time(entitlement.get("checked_at")) else {
-        return false;
-    };
-
-    let now = chrono::Utc::now();
-    checked_at <= now + chrono::Duration::minutes(APP_ENTITLEMENT_CLOCK_SKEW_MINUTES)
-        && now.signed_duration_since(checked_at)
-            <= chrono::Duration::hours(APP_ENTITLEMENT_MAX_STALE_HOURS)
-}
-
-fn entitlement_active(entitlement: &serde_json::Value) -> bool {
-    entitlement
-        .get("active")
-        .and_then(|active| active.as_bool())
-        .unwrap_or(false)
-}
-
-fn entitlement_has_future_grace(entitlement: &serde_json::Value) -> bool {
-    parse_entitlement_time(entitlement.get("grace_until"))
-        .map(|grace_until| grace_until > chrono::Utc::now())
-        .unwrap_or(false)
-}
-
-fn entitlement_is_lifetime(entitlement: &serde_json::Value) -> bool {
-    let field = |key: &str| {
-        entitlement
-            .get(key)
-            .and_then(|value| value.as_str())
-            .unwrap_or("")
-    };
-    field("plan") == "lifetime" || field("source") == "lifetime"
-}
-
-fn entitlement_feature(entitlement: &serde_json::Value, feature: &str) -> bool {
-    entitlement
-        .get("features")
-        .and_then(|features| features.get(feature))
-        .and_then(|feature| feature.as_bool())
-        .unwrap_or(false)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AudioEngineFallbackReason {
     NotLoggedIn,
-    NotSubscribed,
     MissingDeepgramKey,
 }
 
 impl AudioEngineFallbackReason {
     pub fn notification_title(&self) -> &'static str {
         match self {
-            Self::NotLoggedIn | Self::NotSubscribed => "Screenpipe Cloud unavailable",
+            Self::NotLoggedIn => "Screenpipe Cloud unavailable",
             Self::MissingDeepgramKey => "Deepgram unavailable",
         }
     }
@@ -918,9 +848,6 @@ impl AudioEngineFallbackReason {
         match self {
             Self::NotLoggedIn => {
                 "You are not logged in, so audio is being transcribed locally with Whisper Turbo (fast). Log in to use Screenpipe Cloud."
-            }
-            Self::NotSubscribed => {
-                "Screenpipe Cloud requires an active subscription, so audio is being transcribed locally with Whisper Turbo (fast)."
             }
             Self::MissingDeepgramKey => {
                 "Deepgram has no API key configured, so audio is being transcribed locally with Whisper Turbo (fast)."
@@ -1270,8 +1197,12 @@ impl SettingsStore {
         config
     }
 
-    pub fn app_entitled_or_dev(&self) -> bool {
-        return true;
+    pub fn is_logged_in(&self) -> bool {
+        self.user
+            .token
+            .as_ref()
+            .is_some_and(|token| !token.is_empty())
+            || self.user.id.as_ref().is_some_and(|id| !id.is_empty())
     }
 
     pub fn audio_engine_resolution(&self) -> AudioEngineResolution {
@@ -1282,7 +1213,6 @@ impl SettingsStore {
             .as_ref()
             .map_or(false, |token| !token.is_empty())
             || self.user.id.as_ref().map_or(false, |id| !id.is_empty());
-        let is_subscribed = self.user.cloud_subscribed == Some(true);
         let has_deepgram_key = !self.recording.deepgram_api_key.is_empty()
             && self.recording.deepgram_api_key != "default";
         let fallback = "whisper-large-v3-turbo-quantized".to_string();
@@ -1297,11 +1227,6 @@ impl SettingsStore {
                 tracing::warn!("screenpipe-cloud selected but user not logged in, falling back to whisper-large-v3-turbo-quantized");
                 resolution.active = fallback;
                 resolution.fallback_reason = Some(AudioEngineFallbackReason::NotLoggedIn);
-            }
-            "screenpipe-cloud" if !is_subscribed => {
-                tracing::warn!("screenpipe-cloud selected but user is not a pro subscriber, falling back to whisper-large-v3-turbo-quantized");
-                resolution.active = fallback;
-                resolution.fallback_reason = Some(AudioEngineFallbackReason::NotSubscribed);
             }
             "deepgram" if !has_deepgram_key => {
                 tracing::warn!("deepgram selected but no API key configured, falling back to whisper-large-v3-turbo-quantized");
@@ -1587,7 +1512,6 @@ mod tests {
         store.recording.audio_transcription_engine = "screenpipe-cloud".to_string();
         store.user.id = None;
         store.user.token = None;
-        store.user.cloud_subscribed = Some(true);
 
         let resolution = store.audio_engine_resolution();
 
@@ -1600,27 +1524,11 @@ mod tests {
     }
 
     #[test]
-    fn screenpipe_cloud_falls_back_when_not_subscribed() {
-        let mut store = SettingsStore::default();
-        store.recording.audio_transcription_engine = "screenpipe-cloud".to_string();
-        store.user.token = Some("token".to_string());
-        store.user.cloud_subscribed = Some(false);
-
-        let resolution = store.audio_engine_resolution();
-
-        assert_eq!(resolution.active, FALLBACK_ENGINE);
-        assert_eq!(
-            resolution.fallback_reason,
-            Some(AudioEngineFallbackReason::NotSubscribed)
-        );
-    }
-
     #[test]
-    fn screenpipe_cloud_stays_active_for_subscribed_users() {
+    fn screenpipe_cloud_stays_active_for_logged_in_users() {
         let mut store = SettingsStore::default();
         store.recording.audio_transcription_engine = "screenpipe-cloud".to_string();
         store.user.token = Some("token".to_string());
-        store.user.cloud_subscribed = Some(true);
 
         let resolution = store.audio_engine_resolution();
 

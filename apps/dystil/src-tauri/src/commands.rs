@@ -680,7 +680,7 @@ pub fn get_cloud_token() -> Option<String> {
 /// users who signed in AFTER the engine started would stay on the
 /// gateway's anonymous tier (allowed_models = haiku/gemini only) on
 /// every pipe run, surfacing as `403 "model_not_allowed"` for any
-/// Sonnet/Opus preset even with an active Pro subscription. Logout +
+/// Sonnet/Opus preset even while using the ChatGPT-backed provider. Logout +
 /// log-in from the webview alone does NOT restart the sidecar, which
 /// is why the previous user-facing workaround was "fully quit the
 /// app from the tray."
@@ -1146,89 +1146,9 @@ pub async fn get_disk_usage(
     }
 }
 
-/// Open the screenpi.pe login page.
-/// On Windows, opens in the system browser (WebView2 has issues with some auth
-/// providers; the registered deep-link scheme handles the redirect back).
-/// On macOS/Linux, uses an in-app WebView that intercepts the screenpipe://
-/// deep-link redirect (Safari blocks custom-scheme redirects).
-#[tauri::command]
-#[specta::specta]
-pub async fn open_login_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    // Windows: open in system browser — deep link is registered via
-    // tauri_plugin_deep_link::register_all() so the screenpipe:// redirect works
-    #[cfg(target_os = "windows")]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        app_handle
-            .opener()
-            .open_url("https://screenpipe.com/login", None::<&str>)
-            .map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // macOS / Linux: in-app WebView to intercept the deep-link redirect
-    #[cfg(not(target_os = "windows"))]
-    {
-        use tauri::{WebviewUrl, WebviewWindowBuilder};
-
-        let label = "login-browser";
-
-        // If already open, just focus it
-        if let Some(w) = app_handle.get_webview_window(label) {
-            let _ = w.show();
-            let _ = w.set_focus();
-            return Ok(());
-        }
-
-        let app_for_nav = app_handle.clone();
-
-        const LOGIN_URL: &str = "https://screenpipe.com/login";
-        let mut builder = WebviewWindowBuilder::new(
-            &app_handle,
-            label,
-            WebviewUrl::External(LOGIN_URL.parse().unwrap()),
-        )
-        .title("sign in to dystil")
-        .inner_size(460.0, 700.0)
-        .focused(true);
-
-        // Hide the title text on macOS — traffic lights stay, title bar
-        // stays opaque (no Overlay style), so the remote login page isn't
-        // covered by the bar. Same pattern used elsewhere in window/show.rs.
-        #[cfg(target_os = "macos")]
-        {
-            builder = builder.hidden_title(true);
-        }
-
-        builder = builder.on_navigation(move |url| {
-            if url.scheme() == "screenpipe" {
-                info!("login window intercepted deep link: {}", url);
-                let _ = app_for_nav.emit("deep-link-received", url.to_string());
-                // Close the login window after a short delay to avoid
-                // closing before the event is delivered
-                if let Some(w) = app_for_nav.get_webview_window("login-browser") {
-                    let _ = w.close();
-                }
-                false // block navigation to custom scheme
-            } else {
-                true // allow all https navigations (Clerk, OAuth providers, etc.)
-            }
-        });
-        builder
-            .build()
-            .map(crate::window::finalize_webview_window)
-            .map_err(|e| {
-                log_webview_build_failure(label, LOGIN_URL, &e);
-                e.to_string()
-            })?;
-
-        Ok(())
-    }
-}
-
 /// Open Google Calendar OAuth inside an in-app WebView.
-/// Same pattern as `open_login_window` — intercepts the screenpipe:// deep-link
-/// redirect so we don't rely on Safari custom-scheme support.
+/// Intercepts the screenpipe:// deep-link redirect so we don't rely on Safari
+/// custom-scheme support.
 #[allow(dead_code)] // invoked via Tauri IPC, not direct Rust calls
 #[tauri::command]
 #[specta::specta]

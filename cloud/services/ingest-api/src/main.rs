@@ -10,7 +10,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
-use axum::routing::{get, post, put};
+use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
 use screenpipe_protocol::{
     DeviceSummary, IngestBatchRequest, ListDevicesResponse, RegisterDeviceRequest,
@@ -31,14 +31,14 @@ use work_insights_report as reports;
 use work_insights_report::ReportError;
 
 mod auth;
+mod auth_proxy;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
     database_url: String,
     bind_addr: SocketAddr,
     public_base_url: String,
-    supabase_url: Option<String>,
-    supabase_anon_key: Option<String>,
+    auth_internal_url: Option<String>,
 }
 
 impl Config {
@@ -54,8 +54,9 @@ impl Config {
             database_url: required_env("WORK_INSIGHTS_DATABASE_URL")?,
             bind_addr,
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
-            supabase_url: std::env::var("SUPABASE_URL").ok(),
-            supabase_anon_key: std::env::var("SUPABASE_ANON_KEY").ok(),
+            auth_internal_url: std::env::var("AUTH_INTERNAL_URL")
+                .ok()
+                .map(|value| value.trim_end_matches('/').to_string()),
         })
     }
 }
@@ -176,23 +177,26 @@ async fn build_state(config: Arc<Config>) -> anyhow::Result<AppState> {
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/health/auth", get(auth_proxy::auth_health))
+        .route("/api/auth", any(auth_proxy::proxy_auth_root))
+        .route("/api/auth/{*path}", any(auth_proxy::proxy_auth_request))
         .route("/auth/session/exchange", post(exchange_session))
         .route("/me", get(get_me))
         .route("/devices/register", post(register_device))
         .route("/devices", get(list_devices))
-        .route("/devices/:device_id/revoke", post(revoke_device))
+        .route("/devices/{device_id}/revoke", post(revoke_device))
         .route("/v1/ingest/upload-ticket", post(upload_ticket))
-        .route("/v1/ingest/uploads/:batch_id", put(put_upload))
+        .route("/v1/ingest/uploads/{batch_id}", put(put_upload))
         .route("/v1/ingest/upload-complete", post(upload_complete))
         .route("/v1/reports/me/daily", get(get_daily_report))
         .route("/v1/reports/me/timeline", get(get_daily_timeline))
-        .route("/v1/reports/me/evidence/:atom_id", get(get_evidence))
+        .route("/v1/reports/me/evidence/{atom_id}", get(get_evidence))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "ok": true }))
+    Json(json!({ "ok": true, "service": "rust-api" }))
 }
 
 async fn exchange_session(
@@ -281,7 +285,7 @@ async fn upload_ticket(
     Json(body): Json<UploadTicketRequest>,
 ) -> Result<Json<UploadTicketResponse>, AppError> {
     let principal = auth::authenticate_device(&state, &headers).await?;
-    let bearer = auth::bearer_token(&headers)?;
+    let device_token = auth::device_token(&headers)?;
     validate_batch(&body.batch)?;
     if let Some((sha256, byte_count)) =
         db_ingest::upsert_pending_batch(&state.pool, &principal, &body.batch, None).await?
@@ -295,7 +299,7 @@ async fn upload_ticket(
     let mut headers = BTreeMap::new();
     headers.insert(
         "authorization".to_string(),
-        format!("Bearer {}", bearer),
+        format!("Device {}", device_token),
     );
     Ok(Json(UploadTicketResponse {
         ok: Some(true),

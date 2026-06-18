@@ -5,6 +5,94 @@
 
 
 export const commands = {
+async authBeginSocialSignIn(provider: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_begin_social_sign_in", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authClearDeviceToken() : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_clear_device_token") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authClearSession() : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_clear_session") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authFetchProfile() : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_fetch_profile") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authFinishOauthCallback(url: string) : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_finish_oauth_callback", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authGetDeviceToken() : Promise<Result<string | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_get_device_token") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authGetSession() : Promise<Result<DystilUserSession | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_get_session") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authGetState() : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_get_state") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authRegisterDevice() : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_register_device") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authSignOut() : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_sign_out") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async authStoreSession(token: string) : Promise<Result<DystilAuthState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("auth_store_session", { token }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Frontend-callable gate. The banner awaits this before calling
  * `downloadAndInstall` (Windows: triggers process::exit internally) or
@@ -892,27 +980,12 @@ async oauthStatus(integrationId: string, instance: string | null) : Promise<Resu
 },
 /**
  * Open Google Calendar OAuth inside an in-app WebView.
- * Same pattern as `open_login_window` — intercepts the screenpipe:// deep-link
- * redirect so we don't rely on Safari custom-scheme support.
+ * Intercepts the screenpipe:// deep-link redirect so we don't rely on Safari
+ * custom-scheme support.
  */
 async openGoogleCalendarAuthWindow(authUrl: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_google_calendar_auth_window", { authUrl }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Open the screenpi.pe login page.
- * On Windows, opens in the system browser (WebView2 has issues with some auth
- * providers; the registered deep-link scheme handles the redirect back).
- * On macOS/Linux, uses an in-app WebView that intercepts the screenpipe://
- * deep-link redirect (Safari blocks custom-scheme redirects).
- */
-async openLoginWindow() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("open_login_window") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1666,7 +1739,7 @@ async setCloudMediaAnalysisSkill(enabled: boolean) : Promise<Result<null, string
  * users who signed in AFTER the engine started would stay on the
  * gateway's anonymous tier (allowed_models = haiku/gemini only) on
  * every pipe run, surfacing as `403 "model_not_allowed"` for any
- * Sonnet/Opus preset even with an active Pro subscription. Logout +
+ * Sonnet/Opus preset even while using the ChatGPT-backed provider. Logout +
  * log-in from the webview alone does NOT restart the sidecar, which
  * is why the previous user-facing workaround was "fully quit the
  * app from the tray."
@@ -2129,6 +2202,9 @@ export type DiscoveredHost = { host: string; port: number; user: string | null; 
  * Only set when `HostName` resolves to an IP different from the alias.
  */
 alias?: string | null }
+export type DystilAuthState = { status: string; session: DystilUserSession | null; user: DystilUserProfile | null; device_token_present: boolean; error: string | null }
+export type DystilUserProfile = { id: string; email: string | null; name: string | null; image: string | null; org_id: string | null; role: string | null }
+export type DystilUserSession = { session_token: string | null; expires_at: string | null }
 export type EmbeddedLLM = { enabled: boolean; model: string; port: number }
 export type EnterpriseInstallMetadata = { install_source: string; update_manager: string; managed: boolean; detected_by: string[] }
 export type ExcludedApp = { bundleId: string; name: string | null; icon: string | null }
@@ -2782,7 +2858,7 @@ export type SyncDeviceInfo = { id: string; deviceId: string; deviceName: string 
  * Sync status response.
  */
 export type SyncStatusResponse = { enabled: boolean; isSyncing: boolean; lastSync: string | null; lastError: string | null; storageUsed: number | null; storageLimit: number | null; deviceCount: number | null; deviceLimit: number | null; syncTier: string | null; machineId: string }
-export type User = { id: string | null; name: string | null; email: string | null; image: string | null; token: string | null; clerk_id: string | null; api_key: string | null; credits: Credits | null; stripe_connected: boolean | null; stripe_account_status: string | null; github_username: string | null; bio: string | null; website: string | null; contact: string | null; cloud_subscribed: boolean | null; credits_balance: number | null; app_entitled: boolean | null; subscription_plan: string | null; entitlement: JsonValue | null }
+export type User = { id: string | null; name: string | null; email: string | null; image: string | null; token: string | null; api_key: string | null; credits: Credits | null; bio: string | null; website: string | null; contact: string | null; credits_balance: number | null }
 export type ViewerContent = { kind: "text"; text: string; name: string; path: string; truncated: boolean; total_bytes: number } | { kind: "image"; data_url: string; name: string; path: string } |
 /**
  * Non-text, non-image file (random binary). The UI surfaces a

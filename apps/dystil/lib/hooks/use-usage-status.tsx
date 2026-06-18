@@ -17,7 +17,7 @@ import { useSettings } from "@/lib/hooks/use-settings";
  * is bypassed entirely. UIs should render nothing in either case.
  */
 export interface UsageStatus {
-  tier: "anonymous" | "logged_in" | "subscribed";
+  tier: "anonymous" | "logged_in";
   used_today: number;
   limit_today: number;
   remaining: number;
@@ -51,7 +51,12 @@ export function useUsageStatus(): UsageStatus | null {
           typeof json.remaining === "number"
         ) {
           setStatus({
-            tier: (json.tier as UsageStatus["tier"]) ?? "anonymous",
+            tier:
+              json.tier === "anonymous"
+                ? "anonymous"
+                : token
+                  ? "logged_in"
+                  : "anonymous",
             used_today: json.used_today ?? 0,
             limit_today: json.limit_today,
             remaining: json.remaining,
@@ -111,7 +116,7 @@ export function shouldWarnLowQuota(
   const fullCapacity = Math.floor(usage.limit_today / weight);
   const remainingForModel = Math.floor(usage.remaining / weight);
   // If the model alone would exhaust the cap in fewer than ~30% of its
-  // full-capacity messages, warn. Avoids false positives on high-cap tiers.
+  // full-capacity messages, warn. Avoids false positives on high-cap setups.
   if (fullCapacity === 0) return false;
   return remainingForModel / fullCapacity < 0.3;
 }
